@@ -31,8 +31,8 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
-# Fear & Greed 指数は 2018-02-01 開始。それより少し前から価格を保持しておく
-START_DATE = "2018-01-01"
+# 4年周期の比較に使うため BTC は 2014 年（Yahoo の最古）から保持する。F&G 指数は 2018-02-01 開始
+START_DATE = "2014-01-01"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
