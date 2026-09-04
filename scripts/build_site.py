@@ -25,7 +25,9 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 BTC, MSTR = "BTC", "MSTR"
 # ルールのしきい値（mNAV は時価総額 ÷ 保有 BTC 価値）
-THRESHOLDS = {"exit_on_greed": 1.5, "forced_exit": 3.0, "cheap": 1.0, "cost_bps": 30}
+THRESHOLDS = {"exit_on_greed": 1.5, "forced_exit": 3.0, "cheap": 1.0, "cost_bps": 30,
+              "mstu_share": 0.5, "trend_band": 0.03, "mstr_ma_days": 100}
+MSTU_DAILY_COST = 0.00142  # 日次 2 倍 ETF の実測コスト（MSTU 実データで較正。2倍複利の減価を除く分、年率およそ 36%）
 ERA_START = date(2020, 8, 10)  # mnav.com のデータ開始日（Strategy 社の最初の BTC 購入日）
 EQUITY_START = date(2020, 8, 11)
 CLS_CODE = {"Extreme Fear": "EF", "Fear": "F", "Neutral": "N", "Greed": "G", "Extreme Greed": "EG"}
@@ -149,6 +151,43 @@ def buy_and_hold(prices: list[float], equity_from: int) -> list[float | None]:
     return [None if i < equity_from else prices[i] / prices[equity_from] for i in range(len(prices))]
 
 
+def hysteresis_trend(prices: list[float], ma: list[float | None], band: float) -> list[bool]:
+    """移動平均の +band 上で強気、-band 下で弱気に切り替える（その間は直前の判定を維持）。"""
+    state = True
+    result = []
+    for price, m in zip(prices, ma):
+        if m is not None:
+            if price > m * (1 + band):
+                state = True
+            elif price < m * (1 - band):
+                state = False
+        result.append(state)
+    return result
+
+
+def portfolio_equity(weights_by_day: list[dict], returns: dict[str, list[float]], mstr_trading: list[bool],
+                     equity_from: int, cost_bps: float) -> list[float | None]:
+    """配分が変わった日（米国営業日）に目標配分へ入れ替えるポートフォリオの資産曲線。"""
+    n = len(weights_by_day)
+    equity: list[float | None] = [None] * n
+    values: dict[str, float] = dict(weights_by_day[equity_from])
+    current = tuple(sorted(values.items()))
+    equity[equity_from] = 1.0
+    for i in range(equity_from + 1, n):
+        for asset in values:
+            values[asset] *= 1.0 + returns[asset][i]
+        target = weights_by_day[i]
+        key = tuple(sorted(target.items()))
+        if key != current and mstr_trading[i]:
+            total = sum(values.values())
+            new_values = {a: total * w for a, w in target.items()}
+            turnover = sum(abs(new_values.get(a, 0.0) - values.get(a, 0.0)) for a in set(new_values) | set(values)) / 2 / total
+            values = {a: v * (1.0 - turnover * cost_bps / 1e4) for a, v in new_values.items()}
+            current = key
+        equity[i] = sum(values.values())
+    return equity
+
+
 def max_drawdown(equity: list[float | None]) -> float:
     peak = 0.0
     worst = 0.0
@@ -213,11 +252,29 @@ def build(out_dir: Path) -> dict:
     if any(v is None for v in (fng_vals[0], cls[0], btc[0], mstr[0], mnav[0])):
         raise RuntimeError("開始日のデータが揃っていません")
 
+    trend_btc = hysteresis_trend(btc, sma200, THRESHOLDS["trend_band"])
+    mstr_ma = rolling_mean(mstr, THRESHOLDS["mstr_ma_days"])
+    trend_mstr = [m is not None and p > m for p, m in zip(mstr, mstr_ma)]
+
     equity_from = days.index(EQUITY_START)
     rule_f = simulate(targets_rule_f(cls, mnav, THRESHOLDS), mstr_trading, btc, mstr, equity_from, THRESHOLDS["cost_bps"])
     rule_a = simulate(targets_rule_a(cls), mstr_trading, btc, mstr, equity_from, THRESHOLDS["cost_bps"])
     eq_btc = buy_and_hold(btc, equity_from)
     eq_mstr = buy_and_hold(mstr, equity_from)
+
+    # MSTU 参考戦略: ルール F が MSTR 側かつ BTC トレンド強気のときだけ MSTU を目標比率で持ち、それ以外は MSTR 100%
+    r_mstr = [0.0] + [mstr[i] / mstr[i - 1] - 1.0 for i in range(1, len(mstr))]
+    returns = {
+        "MSTR": r_mstr,
+        "MSTU": [2.0 * r - MSTU_DAILY_COST if t else 0.0 for r, t in zip(r_mstr, mstr_trading)],
+    }
+    share = THRESHOLDS["mstu_share"]
+    mstu_weights = [
+        {"MSTU": share, "MSTR": round(1.0 - share, 4)} if (rule_f["desired"][i] == MSTR and trend_btc[i]) else {"MSTR": 1.0}
+        for i in range(len(days))
+    ]
+    eq_mstu_mix = portfolio_equity(mstu_weights, returns, mstr_trading, equity_from, THRESHOLDS["cost_bps"])
+    eq_mstu_hold = portfolio_equity([{"MSTU": 1.0}] * len(days), returns, mstr_trading, equity_from, 0.0)
 
     # --- 最新日の判定 ---
     last = len(days) - 1
@@ -273,6 +330,14 @@ def build(out_dir: Path) -> dict:
         "sma200": round(sma200[last], 2) if sma200[last] else None,
         "regime_bull": bull,
         "regime_gap": (btc[last] / sma200[last] - 1) if sma200[last] else None,
+        "trend_btc_bull": trend_btc[last],
+        "trend_btc_prev": trend_btc[prev],
+        "sma200_upper": round(sma200[last] * (1 + THRESHOLDS["trend_band"]), 2) if sma200[last] else None,
+        "sma200_lower": round(sma200[last] * (1 - THRESHOLDS["trend_band"]), 2) if sma200[last] else None,
+        "mstr_ma": round(mstr_ma[last], 2) if mstr_ma[last] else None,
+        "trend_mstr_up": trend_mstr[last],
+        "trend_mstr_prev": trend_mstr[prev],
+        "mstu_guide_share": share if (desired_today == MSTR and trend_btc[last]) else 0.0,
         "rule_position_before": held_before_today,
         "rule_target": desired_today,
         "rule_position": rule_f["positions"][last],
@@ -291,6 +356,11 @@ def build(out_dir: Path) -> dict:
         "max_drawdown_btc": max_drawdown(eq_btc),
         "max_drawdown_mstr": max_drawdown(eq_mstr),
         "switches_f": len(rule_f["switches"]),
+        "multiple_mstu_mix": eq_mstu_mix[last],
+        "max_drawdown_mstu_mix": max_drawdown(eq_mstu_mix),
+        "multiple_mstu_hold": eq_mstu_hold[last],
+        "max_drawdown_mstu_hold": max_drawdown(eq_mstu_hold),
+        "mstu_daily_cost": MSTU_DAILY_COST,
     }
     switches = [
         {
@@ -333,12 +403,16 @@ def build(out_dir: Path) -> dict:
             "mnav": r(mnav, 4),
             "mnav_med": r(mnav_median, 4),
             "sma200": r(sma200, 2),
+            "trend_btc": [1 if t else 0 for t in trend_btc],
+            "mstr_ma": r(mstr_ma, 2),
+            "trend_mstr": [1 if t else 0 for t in trend_mstr],
             "pos": rule_f["positions"],
             "tgt": rule_f["desired"],
             "eq_f": r(rule_f["equity"], 4),
             "eq_a": r(rule_a["equity"], 4),
             "eq_btc": r(eq_btc, 4),
             "eq_mstr": r(eq_mstr, 4),
+            "eq_mstu_mix": r(eq_mstu_mix, 4),
         },
     }
 
@@ -363,7 +437,9 @@ def build(out_dir: Path) -> dict:
     log(f"判定: 指数 {latest['fng']} {latest['cls']}、mNAV {latest['mnav']}、ルールの保有 {latest['rule_position']}、"
         f"望ましい {latest['rule_target']}、本日シグナル {'あり' if signal_fired_today else 'なし'}")
     log(f"切替回数 {len(switches)}、{EQUITY_START} からの倍率: F {summary['multiple_f']:.2f} / A {summary['multiple_a']:.2f} / "
-        f"BTC {summary['multiple_btc']:.2f} / MSTR {summary['multiple_mstr']:.2f}")
+        f"BTC {summary['multiple_btc']:.2f} / MSTR {summary['multiple_mstr']:.2f} / MSTU参考戦略 {summary['multiple_mstu_mix']:.2f} / MSTU持ち切り {summary['multiple_mstu_hold']:.2f}")
+    log(f"トレンド: BTC 200日MA±{THRESHOLDS['trend_band']*100:.0f}% {'強気' if latest['trend_btc_bull'] else '弱気'}、"
+        f"MSTR {THRESHOLDS['mstr_ma_days']}日MA {'上' if latest['trend_mstr_up'] else '下'}、MSTU 比率の目安 {latest['mstu_guide_share']*100:.0f}%")
     log(f"出力: {out_dir}（index.html {len(embedded) // 1024} KB のデータを埋め込み）")
     return dashboard
 

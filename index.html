@@ -123,7 +123,12 @@
 
   /* フォーム */
   .form { display: grid; grid-template-columns: 1fr; gap: 8px; }
-  @media (min-width: 600px) { .form { grid-template-columns: 1fr 1fr 2fr auto; align-items: end; } }
+  @media (min-width: 600px) { .form { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: end; } }
+  .mix { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .mix span { background: var(--surface2); border-radius: 8px; padding: 6px 10px; font-weight: 700; }
+  .mix span.mstu { color: #b07ee0; } .mix span.mstr { color: var(--mstr); } .mix span.cash { color: var(--muted); }
+  .conds { margin: 0; padding-left: 1.1em; }
+  .conds li { margin-bottom: 4px; }
   label.field { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--muted); }
   label.field input, label.field select { background: var(--surface2); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
   .muted { color: var(--muted); }
@@ -187,16 +192,32 @@
       </dl>
     </section>
     <section class="card">
-      <h2>相場レジーム <span class="sub">BTC と 200日移動平均</span></h2>
+      <h2>トレンド判定 <span class="sub">MSTU を持ってよいか</span></h2>
       <div class="regime" id="regime">-</div>
       <dl class="kv">
         <dt>BTC 終値</dt><dd id="regime-btc">-</dd>
-        <dt>200日移動平均</dt><dd id="regime-sma">-</dd>
+        <dt>200日MA と ±3% の帯</dt><dd id="regime-sma">-</dd>
         <dt>乖離</dt><dd id="regime-gap">-</dd>
+        <dt>MSTR と 100日MA</dt><dd id="regime-mstr">-</dd>
       </dl>
-      <p class="small muted" style="margin:8px 0 0">この方式は上げ相場で使う前提。下げ相場に入ったら止めるかどうかは相場判断で決める。</p>
+      <p class="small muted" style="margin:8px 0 0">帯の上抜けで強気、下抜けで弱気に切り替え、帯の中では直前の判定を維持する。</p>
     </section>
   </div>
+
+  <section class="card section" id="mstu-card">
+    <h2>MSTU の目安 <span class="sub">日次2倍ETFの比率</span></h2>
+    <div class="grid cols-2">
+      <div>
+        <div class="big" id="mstu-share">-</div>
+        <div class="mix" id="mstu-mix"></div>
+        <div class="chips" id="mstu-chips"></div>
+      </div>
+      <div class="small">
+        <ul class="conds" id="mstu-conditions"></ul>
+        <p class="muted" id="mstu-note" style="margin:8px 0 0"></p>
+      </div>
+    </div>
+  </section>
 
   <section class="card section">
     <h2>価格</h2>
@@ -231,7 +252,7 @@
       <div>
         <div class="small muted">資産曲線（期間の初日を1、対数目盛、切替コスト0.3%）</div>
         <div class="chart-box"><canvas id="chart-equity"></canvas></div>
-        <div class="legend"><span><i style="background:var(--good)"></i>ルールF（採用）</span><span><i style="background:var(--rule-a)"></i>F&amp;Gのみ</span><span><i style="background:var(--btc)"></i>BTC持ち切り</span><span><i style="background:var(--mstr)"></i>MSTR持ち切り</span></div>
+        <div class="legend"><span><i style="background:var(--good)"></i>ルールF（採用）</span><span><i style="background:var(--rule-a)"></i>F&amp;Gのみ</span><span><i style="background:var(--btc)"></i>BTC持ち切り</span><span><i style="background:var(--mstr)"></i>MSTR持ち切り</span><span><i style="background:#7b2cbf"></i>MSTU参考戦略（合成）</span></div>
       </div>
     </div>
   </section>
@@ -252,8 +273,9 @@
     <h2>自分の保有状態 <span class="sub">この端末に保存されます</span></h2>
     <div class="form">
       <label class="field">保有している資産
-        <select id="hold-asset"><option value="">未設定</option><option value="BTC">BTC 現物</option><option value="MSTR">MSTR</option></select>
+        <select id="hold-asset"><option value="">未設定</option><option value="BTC">BTC 現物</option><option value="MSTR">MSTR</option><option value="MSTU">MSTU と MSTR（BTC は持たない）</option></select>
       </label>
+      <label class="field" id="hold-share-field" hidden>現在の MSTU 比率（%）<input type="number" id="hold-share" min="0" max="100" step="5" placeholder="例: 80"></label>
       <label class="field">切替日<input type="date" id="hold-date"></label>
       <label class="field">メモ<input type="text" id="hold-note" placeholder="例: 8万ドルで半分だけ"></label>
       <button class="btn primary" id="hold-save">保存</button>
@@ -272,6 +294,10 @@
       <label class="field">強欲時の出口 mNAV（以上で売る）<input type="number" step="0.05" min="0" id="th-exit"></label>
       <label class="field">強制退出 mNAV（以上で売る）<input type="number" step="0.1" min="0" id="th-forced"></label>
       <label class="field">割安の目安 mNAV（表示のみ）<input type="number" step="0.05" min="0" id="th-cheap"></label>
+      <label class="field">MSTU の目標比率（%）<input type="number" step="5" min="0" max="100" id="th-mstu-share"></label>
+      <label class="field">弱気トレンドのとき
+        <select id="th-cash-bear"><option value="mstr">MSTR に寄せる（既定）</option><option value="cash">現金にする</option></select>
+      </label>
       <label class="field">テーマ
         <select id="theme-select"><option value="dark">ダーク</option><option value="light">ライト</option></select>
       </label>
@@ -286,7 +312,8 @@
       <div class="small" style="margin-top:8px">
         <p><b>ルール F</b>: 指数が「極端な恐怖」に入った日に BTC 現物を売って MSTR を買う。「極端な強欲」に入った日でも、mNAV が出口水準未満なら売らずに MSTR を持ち続ける。mNAV が強制退出水準以上になったら指数に関係なく BTC に戻す。切替は米国市場の営業日の終値で行う。</p>
         <p><b>mNAV</b> は「MSTR の時価総額 ÷ 保有 BTC の価値」。1.0 なら株価が保有 BTC とちょうど同じ価値。公式定義（負債と優先株を含む）はこれより高く出るので、しきい値はこのページの時価総額ベースで見る。</p>
-        <p><b>通知</b>: GitHub リポジトリの Secrets に <code>NTFY_TOPIC</code> を設定すると、毎朝の更新で判定が変わった日だけ ntfy アプリに通知が届く。手動実行で「テスト通知」を選ぶと設定確認ができる。</p>
+        <p><b>MSTU の目安</b>: MSTU は MSTR の日次 2 倍 ETF で、横ばいでも減価する（実データでの実測はおよそ年率 36% 相当）。そのため「ルール F が MSTR 側」かつ「BTC が 200 日移動平均の +3% 上で強気」のときだけ目標比率で持ち、それ以外は MSTU を 0% にして MSTR に寄せる。MSTR の 100 日移動平均は参考表示。2020 年からの検証では目標比率 30〜50% が MSTR 持ち切りと同等で、80% は大きく劣った。</p>
+        <p><b>通知</b>: GitHub リポジトリの Secrets に <code>NTFY_TOPIC</code> を設定すると、毎朝の更新で判定が変わった日だけ ntfy アプリに通知が届く。MSTU 比率の目安が変わった日も通知する。手動実行で「テスト通知」を選ぶと設定確認ができる。</p>
       </div>
     </details>
   </section>
@@ -311,6 +338,7 @@
   const BTC = "BTC", MSTR = "MSTR";
 
   let DATA = null, S = null, RULE = null, TH = null;
+  const MSTU_MODE = "MSTU";
   let charts = {};
   let live = null; // ライブ取得した指数・価格
   let state = { holding: null, log: [], range: "all" };
@@ -380,6 +408,33 @@
     el("sources").textContent = `データ取得: 指数 ${DATA.sources.fng_fetched_at || "-"} / mNAV ${DATA.sources.mnav_fetched_at || "-"}（UTC）`;
   }
 
+  // ---------- MSTU の目安 ----------
+  function mstuGuide() {
+    const last = S.date.length - 1, sig = currentSignal();
+    const bull = !!S.trend_btc[last], on = sig.target === MSTR, x = TH.mstu_share;
+    if (on && bull) return { mstu: x, mstr: +(1 - x).toFixed(4), cash: 0, on, bull, reason: "ルールFがMSTR側、BTCトレンド強気" };
+    if (!bull && TH.mstu_cash_on_bear) return { mstu: 0, mstr: 0, cash: 1, on, bull, reason: on ? "BTCトレンド弱気（設定により現金）" : "ルールFがBTC側、BTCトレンド弱気（設定により現金）" };
+    return { mstu: 0, mstr: 1, cash: 0, on, bull, reason: on ? "BTCトレンド弱気（MSTRに寄せる）" : "ルールFがBTC側（MSTRに寄せる）" };
+  }
+  function renderMstu() {
+    const L = DATA.latest, g = mstuGuide(), pct = (v) => Math.round(v * 100);
+    el("mstu-share").textContent = `MSTU ${pct(g.mstu)}%`;
+    el("mstu-mix").innerHTML = `<span class="mstu">MSTU ${pct(g.mstu)}%</span><span class="mstr">MSTR ${pct(g.mstr)}%</span><span class="cash">現金 ${pct(g.cash)}%</span>`;
+    el("mstu-chips").innerHTML = [
+      `<span class="chip ${g.on ? "ok" : "ng"}">ルールF <b>${g.on ? "MSTR側" : "BTC側"}</b></span>`,
+      `<span class="chip ${g.bull ? "ok" : "ng"}">BTCトレンド <b>${g.bull ? "強気" : "弱気"}</b>（200日MA±${Math.round(TH.trend_band * 100)}%）</span>`,
+      `<span class="chip ${L.trend_mstr_up ? "ok" : "ng"}">MSTR 100日MA <b>${L.trend_mstr_up ? "上" : "下"}</b>（参考）</span>`,
+    ].join("");
+    const lower = L.sma200_lower ? "$" + fmtUSD(L.sma200_lower) : "-", upper = L.sma200_upper ? "$" + fmtUSD(L.sma200_upper) : "-";
+    el("mstu-conditions").innerHTML = [
+      `<li><b>MSTU を 0% にする条件</b>: ルールFが BTC 側になる（極端な強欲かつ mNAV ${TH.exit_on_greed} 以上、または mNAV ${TH.forced_exit} 以上）、または BTC の終値が ${lower}（200日MAの${Math.round(TH.trend_band * 100)}%下）を割る</li>`,
+      `<li><b>MSTU を ${pct(TH.mstu_share)}% に戻す条件</b>: ルールFが MSTR 側（極端な恐怖）で、BTC が ${upper}（200日MAの${Math.round(TH.trend_band * 100)}%上）より上にある</li>`,
+      `<li><b>減らした分の行き先</b>: ${TH.mstu_cash_on_bear ? "弱気トレンドなら現金、それ以外は MSTR" : "MSTR（上げ相場中の強欲シグナルでは現金化しない）"}</li>`,
+    ].join("");
+    const sm = DATA.summary;
+    el("mstu-note").textContent = `参考: 2020-08-11 からの倍率は MSTU参考戦略（目標${pct(DATA.thresholds.mstu_share)}%、合成） ${fmtX(sm.multiple_mstu_mix)}倍、MSTR持ち切り ${fmtX(sm.multiple_mstr)}倍、MSTU持ち切り ${fmtX(sm.multiple_mstu_hold)}倍。MSTU は横ばいで減価するため上げ相場の局面だけ持つ。`;
+  }
+
   // ---------- 描画: アクション ----------
   function currentSignal() {
     // ライブの指数が新しい日付なら、その分類で今日の望ましいポジションを再判定する
@@ -402,6 +457,7 @@
     card.className = "card action";
     let title, sub;
     const when = L.mstr_trading_today ? "本日の米国市場の終値" : "次の米国営業日の終値";
+    if (holding === MSTU_MODE) { renderActionMstu(card, L, sig, when); return; }
     if (!holding) {
       card.classList.add("unset");
       title = "保有状態を設定してください";
@@ -435,6 +491,47 @@
     if (L.mnav >= TH.forced_exit) chips.push(`<span class="chip ng">強制退出水準 <b>${TH.forced_exit}</b> 以上</span>`);
     if (L.mnav <= TH.cheap) chips.push(`<span class="chip ok">割安の目安 <b>${TH.cheap}</b> 以下</span>`);
     chips.push(`<span class="chip ${L.regime_bull ? "ok" : "ng"}">200日MA <b>${L.regime_bull ? "上" : "下"}</b>（${fmtPct(L.regime_gap, 0)}）</span>`);
+    el("action-chips").innerHTML = chips.join("");
+  }
+
+  function renderActionMstu(card, L, sig, when) {
+    const g = mstuGuide(), target = Math.round(g.mstu * 100);
+    const cur = state.holding && state.holding.mstu_share != null ? Number(state.holding.mstu_share) : null;
+    let title, sub;
+    if (cur == null) {
+      card.classList.add("unset");
+      title = "現在の MSTU 比率を入力してください";
+      sub = `目安は MSTU ${target}%（${g.reason}）。下の「自分の保有状態」で比率を保存すると、増減の指示をここに表示します。`;
+    } else if (cur > target + 5) {
+      card.classList.add("to-btc");
+      title = `MSTU を減らす（${cur}% → ${target}%）`;
+      sub = `差分は${g.cash ? "現金" : " MSTR "}へ。理由: ${g.reason}。執行の目安は${when}。`;
+    } else if (cur < target - 5) {
+      card.classList.add("to-mstr");
+      title = `MSTU を増やす（${cur}% → ${target}%）`;
+      sub = `MSTR を売って MSTU を買う判定。理由: ${g.reason}。執行の目安は${when}。`;
+    } else {
+      card.classList.add("hold");
+      title = `ホールド（MSTU ${cur}% / MSTR ${100 - cur}%）`;
+      sub = target > 0
+        ? `次に MSTU を 0% にする条件: ルールFが BTC 側になる、または BTC が 200日MA の ${Math.round(TH.trend_band * 100)}% 下（${L.sma200_lower ? "$" + fmtUSD(L.sma200_lower) : "-"}）を割る。`
+        : `次に MSTU を戻す条件: ルールFが MSTR 側（極端な恐怖）で、BTC が 200日MA の ${Math.round(TH.trend_band * 100)}% 上（${L.sma200_upper ? "$" + fmtUSD(L.sma200_upper) : "-"}）より上。`;
+    }
+    el("action-title").textContent = title;
+    el("action-sub").textContent = sub;
+    el("action-date").textContent = sig.source === "live" ? `ライブ判定 ${live.fng.date}` : DATA.data_date;
+    const badges = [];
+    if (sig.fired || (S.trend_btc[S.date.length - 1] !== S.trend_btc[S.date.length - 2])) badges.push(`<span class="badge fired">本日シグナル発生</span>`);
+    badges.push(`<span class="badge ${sig.target === MSTR ? "mstr" : "btc"}">ルールの望ましいポジション: ${sig.target}</span>`);
+    badges.push(`<span class="badge">BTCトレンド: ${g.bull ? "強気" : "弱気"}</span>`);
+    if (cur != null) badges.push(`<span class="badge">自分の保有: MSTU ${cur}% / MSTR ${100 - cur}%${state.holding.date ? "（" + state.holding.date + "〜）" : ""}</span>`);
+    el("action-badges").innerHTML = badges.join("");
+    const chips = [];
+    const extreme = sig.cls === "EF" || sig.cls === "EG";
+    chips.push(`<span class="chip ${extreme ? "ng" : ""}">指数 <b>${sig.fng}</b> ${LABEL[sig.cls]}</span>`);
+    chips.push(`<span class="chip ${L.mnav < TH.exit_on_greed ? "ok" : "ng"}">mNAV <b>${fmtX(L.mnav)}</b>${L.mnav < TH.exit_on_greed ? "（出口 " + TH.exit_on_greed + " 未満）" : "（出口 " + TH.exit_on_greed + " 以上）"}</span>`);
+    chips.push(`<span class="chip ${g.bull ? "ok" : "ng"}">BTC 200日MA±${Math.round(TH.trend_band * 100)}% <b>${g.bull ? "強気" : "弱気"}</b></span>`);
+    chips.push(`<span class="chip ${L.trend_mstr_up ? "ok" : "ng"}">MSTR 100日MA <b>${L.trend_mstr_up ? "上" : "下"}</b></span>`);
     el("action-chips").innerHTML = chips.join("");
   }
 
@@ -480,11 +577,13 @@
     el("mnav-date").textContent = `${L.mnav_date}${L.mnav_estimated ? "（最新日は株価から概算）" : ""}`;
 
     const reg = el("regime");
-    reg.className = "regime " + (L.regime_bull ? "bull" : "bear");
-    reg.textContent = L.regime_bull ? "上げ相場（200日MAより上）" : "下げ相場（200日MAより下）";
+    reg.className = "regime " + (L.trend_btc_bull ? "bull" : "bear");
+    reg.textContent = L.trend_btc_bull ? "強気（BTC が 200日MA の帯の上）" : "弱気（BTC が 200日MA の帯の下）";
     el("regime-btc").textContent = "$" + fmtUSD(L.btc_usd);
-    el("regime-sma").textContent = "$" + fmtUSD(L.sma200);
+    el("regime-sma").textContent = `$${fmtUSD(L.sma200)}（${fmtUSD(L.sma200_lower)} 〜 ${fmtUSD(L.sma200_upper)}）`;
     el("regime-gap").textContent = fmtPct(L.regime_gap);
+    el("regime-mstr").textContent = `${L.trend_mstr_up ? "上" : "下"}（$${fmtUSD(L.mstr, 2)} / MA $${fmtUSD(L.mstr_ma, 2)}）`;
+    renderMstu();
   }
 
   // ---------- 描画: 価格 ----------
@@ -590,6 +689,7 @@
       { label: "F&Gのみ", data: norm(S.eq_a), borderColor: COLORS.a, backgroundColor: COLORS.a },
       { label: "BTC", data: norm(S.eq_btc), borderColor: COLORS.btc, backgroundColor: COLORS.btc },
       { label: "MSTR", data: norm(S.eq_mstr), borderColor: COLORS.mstr, backgroundColor: COLORS.mstr },
+      { label: "MSTU参考戦略", data: norm(S.eq_mstu_mix), borderColor: "#7b2cbf", backgroundColor: "#7b2cbf", borderDash: [5, 3] },
     ] }, options: baseOptions("logarithmic") });
   }
 
@@ -609,6 +709,8 @@
       ["F&Gのみ（動画の方式）", S.eq_a[last], maxDrawdown(S.eq_a)],
       ["BTC 持ち切り", S.eq_btc[last], maxDrawdown(S.eq_btc)],
       ["MSTR 持ち切り", S.eq_mstr[last], maxDrawdown(S.eq_mstr)],
+      [`MSTU参考戦略（目標${Math.round(DATA.thresholds.mstu_share * 100)}%、合成）`, S.eq_mstu_mix[last], maxDrawdown(S.eq_mstu_mix)],
+      ["MSTU 持ち切り（合成）", DATA.summary.multiple_mstu_hold, DATA.summary.max_drawdown_mstu_hold],
     ];
     el("summary-table").querySelector("tbody").innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td class="num">${fmtX(r[1])}倍</td><td class="num">${fmtPct(r[2])}</td></tr>`).join("");
     const sw = RULE.switches[RULE.switches.length - 1];
@@ -625,13 +727,22 @@
     el("hold-asset").value = h.asset || "";
     el("hold-date").value = h.date || new Date().toISOString().slice(0, 10);
     el("hold-note").value = h.note || "";
-    const rows = state.log.slice().reverse().map((e, idx) => `<tr><td>${e.date}</td><td>${e.asset || "未設定"}</td><td>${(e.note || "").replace(/</g, "&lt;")}</td><td><button class="btn small danger" data-del="${state.log.length - 1 - idx}">削除</button></td></tr>`);
+    el("hold-share").value = h.mstu_share != null ? h.mstu_share : "";
+    el("hold-share-field").hidden = el("hold-asset").value !== MSTU_MODE;
+    const assetLabel = (e) => e.asset === MSTU_MODE ? `MSTU ${e.mstu_share != null ? e.mstu_share : "?"}% / MSTR ${e.mstu_share != null ? 100 - e.mstu_share : "?"}%` : (e.asset || "未設定");
+    const rows = state.log.slice().reverse().map((e, idx) => `<tr><td>${e.date}</td><td>${assetLabel(e)}</td><td>${(e.note || "").replace(/</g, "&lt;")}</td><td><button class="btn small danger" data-del="${state.log.length - 1 - idx}">削除</button></td></tr>`);
     el("hold-log").querySelector("tbody").innerHTML = rows.join("") || `<tr><td colspan="4" class="muted">記録なし</td></tr>`;
   }
   function saveHolding() {
     const asset = el("hold-asset").value || null, date = el("hold-date").value, note = el("hold-note").value.trim();
-    state.holding = asset ? { asset, date, note } : null;
-    state.log.push({ date, asset, note, savedAt: new Date().toISOString() });
+    let mstuShare = null;
+    if (asset === MSTU_MODE) {
+      const v = parseFloat(el("hold-share").value);
+      if (!(v >= 0 && v <= 100)) { toast("MSTU 比率を 0〜100 で入力してください"); return; }
+      mstuShare = Math.round(v);
+    }
+    state.holding = asset ? { asset, date, note, mstu_share: mstuShare } : null;
+    state.log.push({ date, asset, note, mstu_share: mstuShare, savedAt: new Date().toISOString() });
     save(KEYS.holding, state.holding); save(KEYS.log, state.log);
     renderHolding(); renderAction(); toast("保存しました");
   }
@@ -639,8 +750,9 @@
   // ---------- 設定 ----------
   function renderSettings() {
     el("th-exit").value = TH.exit_on_greed; el("th-forced").value = TH.forced_exit; el("th-cheap").value = TH.cheap;
+    el("th-mstu-share").value = Math.round(TH.mstu_share * 100); el("th-cash-bear").value = TH.mstu_cash_on_bear ? "cash" : "mstr";
     el("theme-select").value = document.documentElement.getAttribute("data-theme") || "dark";
-    const isDefault = TH.exit_on_greed === DATA.thresholds.exit_on_greed && TH.forced_exit === DATA.thresholds.forced_exit && TH.cheap === DATA.thresholds.cheap;
+    const isDefault = TH.exit_on_greed === DATA.thresholds.exit_on_greed && TH.forced_exit === DATA.thresholds.forced_exit && TH.cheap === DATA.thresholds.cheap && TH.mstu_share === DATA.thresholds.mstu_share && !TH.mstu_cash_on_bear;
     el("th-status").textContent = isDefault ? "既定値（検証で採用した値）" : "この端末だけの設定です。通知は既定値で判定されます";
   }
   function applyThresholds(th) {
@@ -687,11 +799,17 @@
     el("range-buttons").addEventListener("click", (e) => { const b = e.target.closest("button[data-range]"); if (!b) return; state.range = b.dataset.range; save(KEYS.range, state.range);
       for (const x of el("range-buttons").querySelectorAll("button")) x.classList.toggle("active", x === b); renderCharts(); });
     el("hold-save").addEventListener("click", saveHolding);
-    el("hold-log").addEventListener("click", (e) => { const b = e.target.closest("button[data-del]"); if (!b) return; state.log.splice(parseInt(b.dataset.del, 10), 1); const lastEntry = state.log[state.log.length - 1]; state.holding = lastEntry && lastEntry.asset ? { asset: lastEntry.asset, date: lastEntry.date, note: lastEntry.note } : null; save(KEYS.log, state.log); save(KEYS.holding, state.holding); renderHolding(); renderAction(); });
+    el("hold-asset").addEventListener("change", () => { el("hold-share-field").hidden = el("hold-asset").value !== MSTU_MODE; });
+    el("hold-log").addEventListener("click", (e) => { const b = e.target.closest("button[data-del]"); if (!b) return; state.log.splice(parseInt(b.dataset.del, 10), 1); const lastEntry = state.log[state.log.length - 1]; state.holding = lastEntry && lastEntry.asset ? { asset: lastEntry.asset, date: lastEntry.date, note: lastEntry.note, mstu_share: lastEntry.mstu_share != null ? lastEntry.mstu_share : null } : null; save(KEYS.log, state.log); save(KEYS.holding, state.holding); renderHolding(); renderAction(); });
     el("hold-export").addEventListener("click", () => { const blob = new Blob([JSON.stringify({ holding: state.holding, log: state.log, thresholds: TH }, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `fgs-holding-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); });
     el("hold-import").addEventListener("change", (e) => { const f = e.target.files[0]; if (!f) return; const reader = new FileReader(); reader.onload = () => { try { const j = JSON.parse(reader.result); if (Array.isArray(j.log)) state.log = j.log; state.holding = j.holding || null; if (j.thresholds) TH = Object.assign({}, TH, j.thresholds); save(KEYS.log, state.log); save(KEYS.holding, state.holding); save(KEYS.thresholds, TH); RULE = computeRule(TH); renderAll(); toast("読み込みました"); } catch (err) { toast("読み込みに失敗しました"); } }; reader.readAsText(f); e.target.value = ""; });
-    el("th-apply").addEventListener("click", () => { const th = { exit_on_greed: parseFloat(el("th-exit").value), forced_exit: parseFloat(el("th-forced").value), cheap: parseFloat(el("th-cheap").value), cost_bps: DATA.thresholds.cost_bps }; if ([th.exit_on_greed, th.forced_exit, th.cheap].some(v => !(v >= 0))) { toast("数値を確認してください"); return; } applyThresholds(th); toast("しきい値を適用しました"); });
-    el("th-reset").addEventListener("click", () => { applyThresholds(Object.assign({}, DATA.thresholds)); toast("既定値に戻しました"); });
+    el("th-apply").addEventListener("click", () => {
+      const share = parseFloat(el("th-mstu-share").value);
+      const th = Object.assign({}, DATA.thresholds, { exit_on_greed: parseFloat(el("th-exit").value), forced_exit: parseFloat(el("th-forced").value), cheap: parseFloat(el("th-cheap").value), mstu_share: share / 100, mstu_cash_on_bear: el("th-cash-bear").value === "cash" });
+      if ([th.exit_on_greed, th.forced_exit, th.cheap].some(v => !(v >= 0)) || !(share >= 0 && share <= 100)) { toast("数値を確認してください"); return; }
+      applyThresholds(th); toast("設定を適用しました");
+    });
+    el("th-reset").addEventListener("click", () => { applyThresholds(Object.assign({}, DATA.thresholds, { mstu_cash_on_bear: false })); toast("既定値に戻しました"); });
   }
   async function loadData() {
     const raw = el("dashboard-data").textContent.trim();
@@ -704,7 +822,7 @@
     S = DATA.series;
     state.holding = load(KEYS.holding, null); state.log = load(KEYS.log, []); state.range = load(KEYS.range, "all");
     for (const x of el("range-buttons").querySelectorAll("button")) x.classList.toggle("active", x.dataset.range === state.range);
-    TH = Object.assign({}, DATA.thresholds, load(KEYS.thresholds, {}));
+    TH = Object.assign({}, DATA.thresholds, { mstu_cash_on_bear: false }, load(KEYS.thresholds, {}));
     RULE = computeRule(TH);
     wire(); renderAll();
     // 整合性チェック（開発用）: JS の再計算が Python の結果と一致するか
