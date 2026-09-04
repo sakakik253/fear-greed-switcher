@@ -1,0 +1,71 @@
+# 毎朝データを取得してダッシュボードを生成し、GitHub Pages にデプロイする。
+# ルールの判定が前日から変わった日は ntfy に通知する（NTFY_TOPIC シークレットが設定されている場合）。
+name: 日次更新とデプロイ
+
+on:
+  schedule:
+    - cron: "15 0 * * *" # 00:15 UTC = 09:15 JST。指数の更新（09:00 JST）と MSTR 終値の反映後
+  workflow_dispatch:
+    inputs:
+      test_notification:
+        description: "ntfy にテスト通知を送る"
+        type: boolean
+        default: false
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: データ取得とサイト生成
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: 指数と価格を取得
+        run: python3 scripts/fetch_data.py
+
+      - name: mNAV データを取得（失敗時は同梱のスナップショットで続行）
+        continue-on-error: true
+        run: python3 scripts/fetch_mstr_fundamentals.py
+
+      - name: サイトを生成
+        run: python3 scripts/build_site.py
+
+      - name: 通知（判定が変わった日のみ）
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          DASHBOARD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: python3 scripts/notify.py ${{ inputs.test_notification == true && '--test' || '' }}
+
+      - name: Pages の設定
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: 成果物をアップロード
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: GitHub Pages へデプロイ
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: デプロイ
+        id: deployment
+        uses: actions/deploy-pages@v4

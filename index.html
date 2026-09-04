@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fear &amp; Greed 切替ダッシュボード</title>
+<meta name="description" content="Crypto Fear &amp; Greed 指数と MSTR の mNAV で BTC 現物と MSTR の切替を判定する個人用ダッシュボード">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta name="theme-color" content="#101729">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root {
+    --bg: #0f1524; --surface: #171f33; --surface2: #1f2941; --border: #2a3552;
+    --fg: #e8ecf5; --muted: #98a2b8; --accent: #4a7bd0;
+    --btc: #f7931a; --mstr: #4a7bd0; --good: #1b998b; --bad: #d7263d; --warn: #f4c542; --rule-a: #e4572e;
+    --shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --bg: #f3f5f9; --surface: #ffffff; --surface2: #f0f3f8; --border: #dde3ee;
+    --fg: #1b2233; --muted: #5d687f; --shadow: 0 4px 14px rgba(20, 30, 60, 0.08);
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", Meiryo, sans-serif;
+    font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  a { color: var(--accent); }
+  .container { max-width: 1100px; margin: 0 auto; padding: 12px 12px 48px; }
+  header.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  header.top h1 { font-size: 1.15rem; margin: 0; letter-spacing: 0.01em; }
+  header.top .meta { color: var(--muted); font-size: 0.8rem; }
+  .toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
+  button, select, input { font: inherit; }
+  .btn {
+    background: var(--surface2); color: var(--fg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 7px 12px; cursor: pointer; font-size: 0.85rem;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.small { padding: 4px 9px; font-size: 0.78rem; }
+  .btn.danger { color: var(--bad); }
+  .grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  @media (min-width: 860px) {
+    .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+    .grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    body { font-size: 15.5px; }
+  }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; box-shadow: var(--shadow); }
+  .card h2 { font-size: 0.85rem; margin: 0 0 8px; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  .card h2 .sub { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+  .section { margin-top: 12px; }
+
+  /* アクションカード */
+  .action { border-left: 8px solid var(--muted); }
+  .action.to-mstr { border-left-color: var(--mstr); }
+  .action.to-btc { border-left-color: var(--btc); }
+  .action.hold { border-left-color: var(--good); }
+  .action.unset { border-left-color: var(--warn); }
+  .action-title { font-size: 1.6rem; font-weight: 800; margin: 2px 0 4px; line-height: 1.25; }
+  .action-sub { color: var(--muted); font-size: 0.92rem; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: var(--surface2); border: 1px solid var(--border); margin-right: 6px; margin-top: 6px; }
+  .badge.fired { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .badge.mstr { color: var(--mstr); border-color: var(--mstr); }
+  .badge.btc { color: var(--btc); border-color: var(--btc); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; font-size: 0.85rem; }
+  .chip b { font-weight: 700; }
+  .chip.ok b { color: var(--good); }
+  .chip.ng b { color: var(--bad); }
+
+  /* ゲージ */
+  .gauge-wrap { display: flex; flex-direction: column; align-items: center; }
+  .gauge-wrap svg { width: 100%; max-width: 300px; height: auto; }
+  .gauge-value { font-size: 2.4rem; font-weight: 800; line-height: 1; }
+  .gauge-label { font-size: 1.05rem; font-weight: 700; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 0.88rem; margin-top: 8px; width: 100%; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .meter { position: relative; height: 14px; border-radius: 7px; margin: 22px 6px 40px; background: linear-gradient(90deg, #1b998b 0%, #7bc96f 25%, #f4c542 40%, #f46036 65%, #d7263d 100%); }
+  .meter .mark { position: absolute; top: -6px; width: 2px; height: 26px; background: var(--fg); opacity: 0.7; }
+  .meter .mark span { position: absolute; top: 28px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
+  .meter .mark.alt span { top: 42px; }
+  .meter .needle { position: absolute; top: -9px; width: 6px; height: 32px; margin-left: -3px; background: var(--fg); border-radius: 3px; box-shadow: 0 0 0 2px var(--surface); }
+  .meter .needle span { position: absolute; top: -22px; left: 50%; transform: translateX(-50%); font-weight: 800; font-size: 0.95rem; color: var(--fg); }
+  .big { font-size: 1.7rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .delta { font-size: 0.85rem; font-weight: 600; }
+  .up { color: var(--good); } .down { color: var(--bad); } .flat { color: var(--muted); }
+  .regime { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; font-weight: 700; border: 1px solid var(--border); }
+  .regime.bull { color: var(--good); border-color: var(--good); }
+  .regime.bear { color: var(--bad); border-color: var(--bad); }
+
+  /* 価格 */
+  .price-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  @media (min-width: 600px) { .price-grid { grid-template-columns: repeat(4, 1fr); } }
+  .price { background: var(--surface2); border-radius: 12px; padding: 10px 12px; }
+  .price .name { color: var(--muted); font-size: 0.78rem; }
+  .price .val { font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .price .note { color: var(--muted); font-size: 0.75rem; }
+
+  /* チャート */
+  .range { display: flex; gap: 4px; }
+  .range .btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .chart-box { position: relative; height: 230px; }
+  @media (min-width: 860px) { .chart-box { height: 290px; } }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.78rem; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+
+  /* 表 */
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { padding: 6px 6px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .table-wrap { overflow-x: auto; }
+
+  /* フォーム */
+  .form { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  @media (min-width: 600px) { .form { grid-template-columns: 1fr 1fr 2fr auto; align-items: end; } }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--muted); }
+  label.field input, label.field select { background: var(--surface2); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 0.8rem; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 0.85rem; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  footer { color: var(--muted); font-size: 0.78rem; margin-top: 20px; line-height: 1.6; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<script id="dashboard-data" type="application/json">__DASHBOARD_JSON__</script>
+<div class="container">
+  <header class="top">
+    <div>
+      <h1>Fear &amp; Greed 切替ダッシュボード</h1>
+      <div class="meta" id="meta-dates">読み込み中...</div>
+    </div>
+    <div class="toolbar">
+      <button class="btn" id="btn-live" title="指数とBTC価格をライブ取得">ライブ更新</button>
+      <button class="btn" id="btn-theme" title="テーマ切替">テーマ</button>
+      <a class="btn" href="#settings">設定</a>
+    </div>
+  </header>
+
+  <div id="live-banner" class="card" hidden></div>
+
+  <section class="card action" id="action-card">
+    <h2>今日のアクション <span class="sub" id="action-date"></span></h2>
+    <div class="action-title" id="action-title">-</div>
+    <div class="action-sub" id="action-sub"></div>
+    <div id="action-badges"></div>
+    <div class="chips" id="action-chips"></div>
+  </section>
+
+  <div class="grid cols-3 section">
+    <section class="card">
+      <h2>Fear &amp; Greed 指数</h2>
+      <div class="gauge-wrap">
+        <svg id="gauge" viewBox="0 0 200 118" aria-label="Fear and Greed gauge"></svg>
+        <div class="gauge-value" id="fng-value">-</div>
+        <div class="gauge-label" id="fng-label">-</div>
+        <dl class="kv">
+          <dt>前日</dt><dd id="fng-prev">-</dd>
+          <dt>同じ分類の連続日数</dt><dd id="fng-zone-days">-</dd>
+          <dt>極端な恐怖 / 強欲の目安</dt><dd>25 以下 / 76 以上</dd>
+        </dl>
+      </div>
+    </section>
+    <section class="card">
+      <h2>MSTR の mNAV <span class="sub">時価総額 ÷ 保有BTC価値</span></h2>
+      <div class="meter" id="mnav-meter"></div>
+      <dl class="kv">
+        <dt>前日</dt><dd id="mnav-prev">-</dd>
+        <dt>過去1年の中央値</dt><dd id="mnav-med">-</dd>
+        <dt>公式定義（負債・優先株込み）</dt><dd id="mnav-official">-</dd>
+        <dt>保有BTC / 発行株数</dt><dd id="mnav-holdings">-</dd>
+        <dt>データ日</dt><dd id="mnav-date">-</dd>
+      </dl>
+    </section>
+    <section class="card">
+      <h2>相場レジーム <span class="sub">BTC と 200日移動平均</span></h2>
+      <div class="regime" id="regime">-</div>
+      <dl class="kv">
+        <dt>BTC 終値</dt><dd id="regime-btc">-</dd>
+        <dt>200日移動平均</dt><dd id="regime-sma">-</dd>
+        <dt>乖離</dt><dd id="regime-gap">-</dd>
+      </dl>
+      <p class="small muted" style="margin:8px 0 0">この方式は上げ相場で使う前提。下げ相場に入ったら止めるかどうかは相場判断で決める。</p>
+    </section>
+  </div>
+
+  <section class="card section">
+    <h2>価格</h2>
+    <div class="price-grid" id="prices"></div>
+  </section>
+
+  <section class="card section">
+    <div class="row" style="justify-content: space-between;">
+      <h2 style="margin:0">チャート</h2>
+      <div class="range" id="range-buttons">
+        <button class="btn small" data-range="90">90日</button>
+        <button class="btn small" data-range="365">1年</button>
+        <button class="btn small active" data-range="all">全期間</button>
+      </div>
+    </div>
+    <div class="grid cols-2" style="margin-top:10px">
+      <div>
+        <div class="small muted">Fear &amp; Greed 指数と切替点</div>
+        <div class="chart-box"><canvas id="chart-fng"></canvas></div>
+        <div class="legend"><span><i style="background:#d7263d"></i>極端な恐怖</span><span><i style="background:#1b998b"></i>極端な強欲</span><span>▲ MSTRへ切替　▼ BTCへ切替</span></div>
+      </div>
+      <div>
+        <div class="small muted">mNAV（時価総額ベース、対数目盛）</div>
+        <div class="chart-box"><canvas id="chart-mnav"></canvas></div>
+        <div class="legend"><span><i style="background:var(--fg)"></i>mNAV</span><span><i style="background:#98a2b8"></i>過去1年の中央値</span><span>点線: 割安 1.0 / 出口 1.5 / 強制退出 3.0</span></div>
+      </div>
+      <div>
+        <div class="small muted">BTC と MSTR（期間の初日を100、対数目盛）。塗り: ルールが MSTR を保有</div>
+        <div class="chart-box"><canvas id="chart-price"></canvas></div>
+        <div class="legend"><span><i style="background:var(--btc)"></i>BTC</span><span><i style="background:var(--mstr)"></i>MSTR</span></div>
+      </div>
+      <div>
+        <div class="small muted">資産曲線（期間の初日を1、対数目盛、切替コスト0.3%）</div>
+        <div class="chart-box"><canvas id="chart-equity"></canvas></div>
+        <div class="legend"><span><i style="background:var(--good)"></i>ルールF（採用）</span><span><i style="background:var(--rule-a)"></i>F&amp;Gのみ</span><span><i style="background:var(--btc)"></i>BTC持ち切り</span><span><i style="background:var(--mstr)"></i>MSTR持ち切り</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid cols-2 section">
+    <section class="card">
+      <h2>ルールの切替履歴 <span class="sub" id="switch-count"></span></h2>
+      <div class="table-wrap"><table id="switch-table"><thead><tr><th>日付</th><th>切替</th><th class="num">指数</th><th class="num">mNAV</th><th class="num">BTC</th><th class="num">MSTR</th></tr></thead><tbody></tbody></table></div>
+    </section>
+    <section class="card">
+      <h2>2020-08-11 からの成績 <span class="sub">参考</span></h2>
+      <div class="table-wrap"><table id="summary-table"><thead><tr><th>戦略</th><th class="num">倍率</th><th class="num">最大下落</th></tr></thead><tbody></tbody></table></div>
+      <p class="small muted" style="margin:8px 0 0" id="leg-info"></p>
+    </section>
+  </div>
+
+  <section class="card section" id="holding">
+    <h2>自分の保有状態 <span class="sub">この端末に保存されます</span></h2>
+    <div class="form">
+      <label class="field">保有している資産
+        <select id="hold-asset"><option value="">未設定</option><option value="BTC">BTC 現物</option><option value="MSTR">MSTR</option></select>
+      </label>
+      <label class="field">切替日<input type="date" id="hold-date"></label>
+      <label class="field">メモ<input type="text" id="hold-note" placeholder="例: 8万ドルで半分だけ"></label>
+      <button class="btn primary" id="hold-save">保存</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn small" id="hold-export">JSON 書き出し</button>
+      <label class="btn small" style="display:inline-block">JSON 読み込み<input type="file" id="hold-import" accept="application/json" hidden></label>
+      <span class="small muted">PC とスマホで共有するときは書き出したファイルを読み込む</span>
+    </div>
+    <div class="table-wrap" style="margin-top:10px"><table id="hold-log"><thead><tr><th>日付</th><th>資産</th><th>メモ</th><th></th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card section" id="settings">
+    <h2>設定</h2>
+    <div class="form" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
+      <label class="field">強欲時の出口 mNAV（以上で売る）<input type="number" step="0.05" min="0" id="th-exit"></label>
+      <label class="field">強制退出 mNAV（以上で売る）<input type="number" step="0.1" min="0" id="th-forced"></label>
+      <label class="field">割安の目安 mNAV（表示のみ）<input type="number" step="0.05" min="0" id="th-cheap"></label>
+      <label class="field">テーマ
+        <select id="theme-select"><option value="dark">ダーク</option><option value="light">ライト</option></select>
+      </label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn small" id="th-apply">しきい値を適用</button>
+      <button class="btn small" id="th-reset">既定に戻す</button>
+      <span class="small muted" id="th-status"></span>
+    </div>
+    <details style="margin-top:10px">
+      <summary>ルールの説明と通知の設定</summary>
+      <div class="small" style="margin-top:8px">
+        <p><b>ルール F</b>: 指数が「極端な恐怖」に入った日に BTC 現物を売って MSTR を買う。「極端な強欲」に入った日でも、mNAV が出口水準未満なら売らずに MSTR を持ち続ける。mNAV が強制退出水準以上になったら指数に関係なく BTC に戻す。切替は米国市場の営業日の終値で行う。</p>
+        <p><b>mNAV</b> は「MSTR の時価総額 ÷ 保有 BTC の価値」。1.0 なら株価が保有 BTC とちょうど同じ価値。公式定義（負債と優先株を含む）はこれより高く出るので、しきい値はこのページの時価総額ベースで見る。</p>
+        <p><b>通知</b>: GitHub リポジトリの Secrets に <code>NTFY_TOPIC</code> を設定すると、毎朝の更新で判定が変わった日だけ ntfy アプリに通知が届く。手動実行で「テスト通知」を選ぶと設定確認ができる。</p>
+      </div>
+    </details>
+  </section>
+
+  <footer>
+    <div id="sources"></div>
+    <div>指数は alternative.me、価格は Yahoo Finance、mNAV は mnav.com のデータ。判定は過去データの検証に基づく個人用の目安であり、投資助言ではない。税金・売買コスト・資金移動の時間は考慮していない。</div>
+    <div>ソースコードと検証レポート: <a href="https://github.com/sakakik253/fear-greed-switcher" target="_blank" rel="noopener">github.com/sakakik253/fear-greed-switcher</a></div>
+  </footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="assets/chart.umd.js"></script>
+<script>
+(function () {
+  "use strict";
+  const LABEL = { EF: "極端な恐怖", F: "恐怖", N: "中立", G: "強欲", EG: "極端な強欲" };
+  const ZONE_COLOR = { EF: "#d7263d", F: "#f46036", N: "#f4c542", G: "#7bc96f", EG: "#1b998b" };
+  const COLORS = { btc: "#f7931a", mstr: "#4a7bd0", f: "#1b998b", a: "#e4572e", muted: "#98a2b8" };
+  const KEYS = { holding: "fgs.holding", log: "fgs.log", thresholds: "fgs.thresholds", theme: "fgs.theme", range: "fgs.range" };
+  const EQUITY_START = "2020-08-11";
+  const BTC = "BTC", MSTR = "MSTR";
+
+  let DATA = null, S = null, RULE = null, TH = null;
+  let charts = {};
+  let live = null; // ライブ取得した指数・価格
+  let state = { holding: null, log: [], range: "all" };
+
+  // ---------- 保存領域（失敗しても動くように try/catch） ----------
+  function load(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; } }
+  function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 保存できない環境では無視 */ } }
+
+  // ---------- 書式 ----------
+  const fmtUSD = (n, d = 0) => n == null ? "-" : n.toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d });
+  const fmtJPY = (n) => n == null ? "-" : "¥" + Math.round(n).toLocaleString("ja-JP");
+  const fmtPct = (x, d = 1) => x == null ? "-" : (x >= 0 ? "+" : "") + (x * 100).toFixed(d) + "%";
+  const fmtX = (x, d = 2) => x == null ? "-" : x.toFixed(d);
+  function deltaHtml(now, prev, d = 1) {
+    if (now == null || prev == null) return "";
+    const x = now / prev - 1;
+    const cls = x > 0.0005 ? "up" : x < -0.0005 ? "down" : "flat";
+    return `<span class="delta ${cls}">${fmtPct(x, d)}</span>`;
+  }
+  function toast(text) { const t = document.getElementById("toast"); t.textContent = text; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); }
+  function el(id) { return document.getElementById(id); }
+
+  // ---------- ルール（build_site.py と同じ実行規則） ----------
+  function ruleTargets(cls, mnav, th) {
+    return cls.map((c, i) => {
+      const m = mnav[i];
+      const toBtc = (c === "EG" && m != null && m >= th.exit_on_greed) || (m != null && m >= th.forced_exit);
+      const toMstr = c === "EF";
+      return toBtc ? BTC : (toMstr ? MSTR : null);
+    });
+  }
+  function simulate(targets, mt, btc, mstr, equityFrom, costBps) {
+    const n = targets.length, desired = [], positions = [], switches = [];
+    let cur = targets[0] || BTC, pos = cur;
+    for (let i = 0; i < n; i++) {
+      if (targets[i] != null) cur = targets[i];
+      desired.push(cur);
+      if (cur !== pos && mt[i]) { switches.push({ index: i, from: pos, to: cur }); pos = cur; }
+      positions.push(pos);
+    }
+    const equity = new Array(n).fill(null);
+    let value = 1.0; equity[equityFrom] = value;
+    for (let i = equityFrom + 1; i < n; i++) {
+      let ret = positions[i - 1] === MSTR ? mstr[i] / mstr[i - 1] - 1 : btc[i] / btc[i - 1] - 1;
+      if (positions[i] !== positions[i - 1]) ret -= costBps / 1e4;
+      value *= 1 + ret; equity[i] = value;
+    }
+    return { desired, positions, switches, equity };
+  }
+  function computeRule(th) {
+    const same = th.exit_on_greed === DATA.thresholds.exit_on_greed && th.forced_exit === DATA.thresholds.forced_exit;
+    if (same) {
+      return { desired: S.tgt, positions: S.pos, equity: S.eq_f, switches: DATA.switches.map(s => ({ index: S.date.indexOf(s.date), from: s.from, to: s.to })), precomputed: true };
+    }
+    const eqFrom = S.date.indexOf(EQUITY_START);
+    const r = simulate(ruleTargets(S.cls, S.mnav, th), S.mt, S.btc, S.mstr, eqFrom, DATA.thresholds.cost_bps);
+    r.precomputed = false;
+    return r;
+  }
+  function maxDrawdown(eq) { let peak = 0, worst = 0; for (const v of eq) { if (v == null) continue; peak = Math.max(peak, v); worst = Math.min(worst, v / peak - 1); } return worst; }
+
+  // ---------- 描画: ヘッダー ----------
+  function renderHeader() {
+    const L = DATA.latest;
+    const gen = new Date(DATA.generated_at);
+    el("meta-dates").textContent = `指数 ${DATA.data_date}　MSTR終値 ${L.mstr_date}　mNAV ${L.mnav_date}${L.mnav_estimated ? "（以降は概算）" : ""}　生成 ${gen.toLocaleString("ja-JP", { hour12: false })}`;
+    el("sources").textContent = `データ取得: 指数 ${DATA.sources.fng_fetched_at || "-"} / mNAV ${DATA.sources.mnav_fetched_at || "-"}（UTC）`;
+  }
+
+  // ---------- 描画: アクション ----------
+  function currentSignal() {
+    // ライブの指数が新しい日付なら、その分類で今日の望ましいポジションを再判定する
+    const last = S.date.length - 1;
+    let cls = DATA.latest.cls, fng = DATA.latest.fng, source = "batch";
+    if (live && live.fng && live.fng.date > DATA.data_date) { cls = live.fng.cls; fng = live.fng.value; source = "live"; }
+    const m = DATA.latest.mnav;
+    const th = TH;
+    let target = RULE.desired[last];
+    if (source === "live") {
+      const t = ruleTargets([cls], [m], th)[0];
+      if (t) target = t;
+    }
+    return { cls, fng, target, source, before: RULE.positions[last - 1], fired: RULE.desired[last] !== RULE.desired[last - 1] || (source === "live" && target !== RULE.desired[last]) };
+  }
+  function renderAction() {
+    const L = DATA.latest, sig = currentSignal();
+    const card = el("action-card");
+    const holding = state.holding && state.holding.asset ? state.holding.asset : null;
+    card.className = "card action";
+    let title, sub;
+    const when = L.mstr_trading_today ? "本日の米国市場の終値" : "次の米国営業日の終値";
+    if (!holding) {
+      card.classList.add("unset");
+      title = "保有状態を設定してください";
+      sub = `ルールの現在のポジションは ${sig.target}（${L.leg.since} から ${L.leg.held}）。下の「自分の保有状態」で BTC か MSTR を選ぶと、切替が必要かをここに表示します。`;
+    } else if (sig.target !== holding) {
+      card.classList.add(sig.target === MSTR ? "to-mstr" : "to-btc");
+      title = sig.target === MSTR ? "MSTR へ切替" : "BTC へ切替";
+      sub = sig.target === MSTR
+        ? `BTC 現物を売って MSTR を買う判定。執行の目安は${when}。`
+        : `MSTR を売って BTC 現物に戻す判定。執行の目安は${when}。`;
+    } else {
+      card.classList.add("hold");
+      title = `ホールド（${holding} 保有中）`;
+      sub = holding === MSTR
+        ? `次に BTC へ戻す条件: 指数が極端な強欲 かつ mNAV ${TH.exit_on_greed} 以上、または mNAV ${TH.forced_exit} 以上。`
+        : `次に MSTR へ切り替える条件: 指数が極端な恐怖（25 以下）に入る。`;
+    }
+    el("action-title").textContent = title;
+    el("action-sub").textContent = sub;
+    el("action-date").textContent = sig.source === "live" ? `ライブ判定 ${live.fng.date}` : DATA.data_date;
+    const badges = [];
+    if (sig.fired) badges.push(`<span class="badge fired">本日シグナル発生</span>`);
+    badges.push(`<span class="badge ${sig.target === MSTR ? "mstr" : "btc"}">ルールの望ましいポジション: ${sig.target}</span>`);
+    if (holding) badges.push(`<span class="badge">自分の保有: ${holding}${state.holding.date ? "（" + state.holding.date + "〜）" : ""}</span>`);
+    el("action-badges").innerHTML = badges.join("");
+    const chips = [];
+    const extreme = sig.cls === "EF" || sig.cls === "EG";
+    chips.push(`<span class="chip ${extreme ? "ng" : ""}">指数 <b>${sig.fng}</b> ${LABEL[sig.cls]}</span>`);
+    const mnavOk = L.mnav < TH.exit_on_greed;
+    chips.push(`<span class="chip ${mnavOk ? "ok" : "ng"}">mNAV <b>${fmtX(L.mnav)}</b> ${mnavOk ? `出口 ${TH.exit_on_greed} 未満（強欲でも売らない）` : `出口 ${TH.exit_on_greed} 以上（強欲なら売る）`}</span>`);
+    if (L.mnav >= TH.forced_exit) chips.push(`<span class="chip ng">強制退出水準 <b>${TH.forced_exit}</b> 以上</span>`);
+    if (L.mnav <= TH.cheap) chips.push(`<span class="chip ok">割安の目安 <b>${TH.cheap}</b> 以下</span>`);
+    chips.push(`<span class="chip ${L.regime_bull ? "ok" : "ng"}">200日MA <b>${L.regime_bull ? "上" : "下"}</b>（${fmtPct(L.regime_gap, 0)}）</span>`);
+    el("action-chips").innerHTML = chips.join("");
+  }
+
+  // ---------- 描画: ゲージ ----------
+  function arcPath(cx, cy, r, a0, a1) {
+    const p = (a) => [cx + r * Math.cos(a * Math.PI / 180), cy - r * Math.sin(a * Math.PI / 180)];
+    const [x0, y0] = p(a0), [x1, y1] = p(a1);
+    return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+  }
+  function renderGauge(value, cls) {
+    const segs = [[0, 25, "EF"], [25, 47, "F"], [47, 55, "N"], [55, 76, "G"], [76, 100, "EG"]];
+    const cx = 100, cy = 104, r = 80;
+    let svg = "";
+    for (const [a, b, z] of segs) {
+      const a0 = 180 - a * 1.8, a1 = 180 - b * 1.8;
+      svg += `<path d="${arcPath(cx, cy, r, a0 - 0.6, a1 + 0.6)}" stroke="${ZONE_COLOR[z]}" stroke-width="18" fill="none" stroke-linecap="butt" opacity="${z === cls ? 1 : 0.45}"/>`;
+    }
+    const ang = 180 - Math.max(0, Math.min(100, value)) * 1.8;
+    const nx = cx + (r - 26) * Math.cos(ang * Math.PI / 180), ny = cy - (r - 26) * Math.sin(ang * Math.PI / 180);
+    svg += `<line x1="${cx}" y1="${cy}" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>`;
+    svg += `<circle cx="${cx}" cy="${cy}" r="6" fill="currentColor"/>`;
+    svg += `<text x="12" y="116" font-size="9" fill="currentColor" opacity="0.6">0</text><text x="178" y="116" font-size="9" fill="currentColor" opacity="0.6">100</text>`;
+    el("gauge").innerHTML = svg;
+  }
+  function renderGauges() {
+    const L = DATA.latest, sig = currentSignal();
+    renderGauge(sig.fng, sig.cls);
+    el("fng-value").textContent = sig.fng;
+    el("fng-value").style.color = ZONE_COLOR[sig.cls];
+    el("fng-label").textContent = `${LABEL[sig.cls]}（${sig.cls}）${sig.source === "live" ? " ライブ" : ""}`;
+    el("fng-prev").textContent = `${L.fng_prev}（${LABEL[L.cls_prev]}）`;
+    el("fng-zone-days").textContent = `${L.zone_days} 日`;
+
+    const meter = el("mnav-meter");
+    const scale = (v) => Math.max(0, Math.min(100, v / 4 * 100));
+    const marks = [[TH.cheap, "割安 " + TH.cheap], [TH.exit_on_greed, "出口 " + TH.exit_on_greed], [TH.forced_exit, "強制退出 " + TH.forced_exit]];
+    meter.innerHTML = marks.map(([v, t], i) => `<div class="mark${i % 2 ? " alt" : ""}" style="left:${scale(v)}%"><span>${t}</span></div>`).join("") +
+      `<div class="needle" style="left:${scale(L.mnav)}%"><span>${fmtX(L.mnav)}</span></div>`;
+    el("mnav-prev").innerHTML = `${fmtX(L.mnav_prev)} ${deltaHtml(L.mnav, L.mnav_prev)}`;
+    el("mnav-med").textContent = fmtX(L.mnav_median_1y);
+    el("mnav-official").textContent = fmtX(L.mnav_official);
+    el("mnav-holdings").textContent = `${L.btc_held ? L.btc_held.toLocaleString() : "-"} BTC / ${L.issued_shares ? (L.issued_shares / 1e6).toFixed(1) + " M株" : "-"}`;
+    el("mnav-date").textContent = `${L.mnav_date}${L.mnav_estimated ? "（最新日は株価から概算）" : ""}`;
+
+    const reg = el("regime");
+    reg.className = "regime " + (L.regime_bull ? "bull" : "bear");
+    reg.textContent = L.regime_bull ? "上げ相場（200日MAより上）" : "下げ相場（200日MAより下）";
+    el("regime-btc").textContent = "$" + fmtUSD(L.btc_usd);
+    el("regime-sma").textContent = "$" + fmtUSD(L.sma200);
+    el("regime-gap").textContent = fmtPct(L.regime_gap);
+  }
+
+  // ---------- 描画: 価格 ----------
+  function renderPrices() {
+    const L = DATA.latest;
+    const btcNow = live && live.btc ? live.btc.usd : L.btc_usd;
+    const btcJpy = live && live.btc && live.btc.jpy ? live.btc.jpy : L.btc_jpy;
+    const items = [
+      { name: "BTC（USD）" + (live && live.btc ? " ライブ" : ""), val: "$" + fmtUSD(btcNow), note: deltaHtml(btcNow, L.btc_prev) + " 前日比" },
+      { name: "BTC（JPY）", val: btcJpy ? fmtJPY(btcJpy) : "-", note: L.usdjpy ? `USDJPY ${L.usdjpy.toFixed(2)}` : "為替データなし" },
+      { name: `MSTR（${L.mstr_date}）`, val: "$" + fmtUSD(L.mstr, 2), note: deltaHtml(L.mstr, L.mstr_prev) + " 前日比" },
+      { name: "MSTR ÷ BTC × 1000", val: (L.mstr / L.btc_usd * 1000).toFixed(3), note: "相対パフォーマンスの目安" },
+    ];
+    el("prices").innerHTML = items.map(i => `<div class="price"><div class="name">${i.name}</div><div class="val">${i.val}</div><div class="note">${i.note}</div></div>`).join("");
+  }
+
+  // ---------- チャート ----------
+  const bandsPlugin = { id: "bands", beforeDatasetsDraw(chart, args, opts) {
+    const { ctx, chartArea, scales } = chart; if (!opts || !opts.bands || !scales.y) return;
+    for (const b of opts.bands) { const y1 = scales.y.getPixelForValue(b.from), y2 = scales.y.getPixelForValue(b.to);
+      ctx.save(); ctx.fillStyle = b.color; ctx.fillRect(chartArea.left, Math.min(y1, y2), chartArea.width, Math.abs(y2 - y1)); ctx.restore(); }
+  } };
+  const shadePlugin = { id: "shade", beforeDatasetsDraw(chart, args, opts) {
+    const pos = opts && opts.pos; if (!pos) return; const { ctx, chartArea, scales } = chart; const x = scales.x;
+    ctx.save(); ctx.fillStyle = opts.color || "rgba(74,123,208,0.12)";
+    let start = null;
+    for (let i = 0; i <= pos.length; i++) {
+      const on = i < pos.length && pos[i] === MSTR;
+      if (on && start === null) start = i;
+      if (!on && start !== null) { const x0 = x.getPixelForValue(start), x1 = x.getPixelForValue(i - 1); ctx.fillRect(x0, chartArea.top, Math.max(1, x1 - x0), chartArea.height); start = null; }
+    }
+    ctx.restore();
+  } };
+  const hlinesPlugin = { id: "hlines", afterDatasetsDraw(chart, args, opts) {
+    const lines = opts && opts.lines; if (!lines) return; const { ctx, chartArea, scales } = chart;
+    ctx.save(); ctx.setLineDash([4, 4]); ctx.lineWidth = 1; ctx.font = "10px sans-serif";
+    for (const l of lines) { const y = scales.y.getPixelForValue(l.y); if (y < chartArea.top || y > chartArea.bottom) continue;
+      ctx.strokeStyle = l.color; ctx.beginPath(); ctx.moveTo(chartArea.left, y); ctx.lineTo(chartArea.right, y); ctx.stroke();
+      ctx.fillStyle = l.color; ctx.fillText(l.label, chartArea.left + 4, y - 3); }
+    ctx.restore();
+  } };
+
+  function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function rangeStart() {
+    const last = S.date.length - 1;
+    if (state.range === "90") return Math.max(0, last - 89);
+    if (state.range === "365") return Math.max(0, last - 364);
+    return 0;
+  }
+  function baseOptions(yType, extraPlugins) {
+    const grid = cssVar("--border"), tick = cssVar("--muted");
+    return {
+      responsive: true, maintainAspectRatio: false, animation: false, normalized: true,
+      interaction: { mode: "index", intersect: false },
+      elements: { point: { radius: 0 }, line: { borderWidth: 1.6, tension: 0 } },
+      scales: {
+        x: { ticks: { color: tick, maxTicksLimit: 6, maxRotation: 0, callback: function (v) { const l = this.getLabelForValue(v); return l ? l.slice(0, 7) : ""; } }, grid: { color: grid } },
+        y: { type: yType, ticks: { color: tick, maxTicksLimit: 6 }, grid: { color: grid } },
+      },
+      plugins: Object.assign({ legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${typeof c.parsed.y === "number" ? (Math.abs(c.parsed.y) >= 100 ? c.parsed.y.toFixed(0) : c.parsed.y.toFixed(2)) : "-"}` } } }, extraPlugins || {}),
+    };
+  }
+  function markerDatasets(labelsStart, switches, yOf) {
+    const n = S.date.length - labelsStart;
+    const up = new Array(n).fill(null), down = new Array(n).fill(null);
+    for (const s of switches) { if (s.index < labelsStart) continue; (s.to === MSTR ? up : down)[s.index - labelsStart] = yOf(s.index); }
+    return [
+      { label: "MSTRへ切替", data: up, showLine: false, pointRadius: 7, pointHoverRadius: 8, pointStyle: "triangle", pointBackgroundColor: COLORS.mstr, pointBorderColor: COLORS.mstr, borderColor: COLORS.mstr },
+      { label: "BTCへ切替", data: down, showLine: false, pointRadius: 7, pointHoverRadius: 8, pointStyle: "triangle", rotation: 180, pointBackgroundColor: COLORS.btc, pointBorderColor: COLORS.btc, borderColor: COLORS.btc },
+    ];
+  }
+  function destroyCharts() { for (const k of Object.keys(charts)) { try { charts[k].destroy(); } catch (e) { /* noop */ } } charts = {}; }
+  function renderCharts() {
+    if (typeof Chart === "undefined") { el("chart-fng").parentElement.innerHTML = '<p class="muted small">チャートライブラリを読み込めませんでした。</p>'; return; }
+    destroyCharts();
+    const st = rangeStart();
+    const labels = S.date.slice(st);
+    const fg = cssVar("--fg");
+    const pos = RULE.positions.slice(st);
+
+    charts.fng = new Chart(el("chart-fng"), { type: "line", plugins: [bandsPlugin], data: { labels, datasets: [
+      { label: "指数", data: S.fng.slice(st), borderColor: fg, backgroundColor: fg },
+      ...markerDatasets(st, RULE.switches, (i) => S.fng[i]),
+    ] }, options: baseOptions("linear", { bands: { bands: [{ from: 0, to: 25, color: "rgba(215,38,61,0.14)" }, { from: 76, to: 100, color: "rgba(27,153,139,0.16)" }] } }) });
+    charts.fng.options.scales.y.min = 0; charts.fng.options.scales.y.max = 100; charts.fng.update();
+
+    charts.mnav = new Chart(el("chart-mnav"), { type: "line", plugins: [hlinesPlugin], data: { labels, datasets: [
+      { label: "mNAV", data: S.mnav.slice(st), borderColor: fg, backgroundColor: fg },
+      { label: "1年中央値", data: S.mnav_med.slice(st), borderColor: COLORS.muted, borderDash: [4, 4], backgroundColor: COLORS.muted },
+      ...markerDatasets(st, RULE.switches, (i) => S.mnav[i]),
+    ] }, options: baseOptions("logarithmic", { hlines: { lines: [{ y: TH.cheap, color: COLORS.f, label: "割安 " + TH.cheap }, { y: TH.exit_on_greed, color: COLORS.btc, label: "出口 " + TH.exit_on_greed }, { y: TH.forced_exit, color: "#d7263d", label: "強制退出 " + TH.forced_exit }] } }) });
+
+    const b0 = S.btc[st], m0 = S.mstr[st];
+    charts.price = new Chart(el("chart-price"), { type: "line", plugins: [shadePlugin], data: { labels, datasets: [
+      { label: "BTC", data: S.btc.slice(st).map(v => v / b0 * 100), borderColor: COLORS.btc, backgroundColor: COLORS.btc },
+      { label: "MSTR", data: S.mstr.slice(st).map(v => v / m0 * 100), borderColor: COLORS.mstr, backgroundColor: COLORS.mstr },
+    ] }, options: baseOptions("logarithmic", { shade: { pos } }) });
+
+    const firstIdx = (arr) => { for (let i = st; i < arr.length; i++) if (arr[i] != null) return i; return st; };
+    const norm = (arr) => { const i0 = firstIdx(arr); const base = arr[i0]; return arr.slice(st).map(v => v == null ? null : v / base); };
+    charts.equity = new Chart(el("chart-equity"), { type: "line", data: { labels, datasets: [
+      { label: "ルールF", data: norm(RULE.equity), borderColor: COLORS.f, backgroundColor: COLORS.f, borderWidth: 2.2 },
+      { label: "F&Gのみ", data: norm(S.eq_a), borderColor: COLORS.a, backgroundColor: COLORS.a },
+      { label: "BTC", data: norm(S.eq_btc), borderColor: COLORS.btc, backgroundColor: COLORS.btc },
+      { label: "MSTR", data: norm(S.eq_mstr), borderColor: COLORS.mstr, backgroundColor: COLORS.mstr },
+    ] }, options: baseOptions("logarithmic") });
+  }
+
+  // ---------- 表 ----------
+  function renderSwitches() {
+    const rows = RULE.switches.slice().reverse().slice(0, 12).map(s => {
+      const i = s.index;
+      return `<tr><td>${S.date[i]}</td><td>${s.from} → <b>${s.to}</b></td><td class="num">${S.fng[i]}（${S.cls[i]}）</td><td class="num">${fmtX(S.mnav[i])}</td><td class="num">${fmtUSD(S.btc[i])}</td><td class="num">${fmtUSD(S.mstr[i], 2)}</td></tr>`;
+    });
+    el("switch-table").querySelector("tbody").innerHTML = rows.join("") || `<tr><td colspan="6" class="muted">切替なし</td></tr>`;
+    el("switch-count").textContent = `${RULE.switches.length} 回${RULE.precomputed ? "" : "（設定のしきい値で再計算）"}`;
+  }
+  function renderSummary() {
+    const last = S.date.length - 1;
+    const rows = [
+      ["ルールF（採用）", RULE.equity[last], maxDrawdown(RULE.equity)],
+      ["F&Gのみ（動画の方式）", S.eq_a[last], maxDrawdown(S.eq_a)],
+      ["BTC 持ち切り", S.eq_btc[last], maxDrawdown(S.eq_btc)],
+      ["MSTR 持ち切り", S.eq_mstr[last], maxDrawdown(S.eq_mstr)],
+    ];
+    el("summary-table").querySelector("tbody").innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td class="num">${fmtX(r[1])}倍</td><td class="num">${fmtPct(r[2])}</td></tr>`).join("");
+    const sw = RULE.switches[RULE.switches.length - 1];
+    const legStart = sw ? sw.index : S.date.indexOf(EQUITY_START);
+    const held = RULE.positions[last];
+    const heldRet = held === MSTR ? S.mstr[last] / S.mstr[legStart] - 1 : S.btc[last] / S.btc[legStart] - 1;
+    const otherRet = held === MSTR ? S.btc[last] / S.btc[legStart] - 1 : S.mstr[last] / S.mstr[legStart] - 1;
+    el("leg-info").textContent = `現在の区間: ${S.date[legStart]} から ${held} を保有（${last - legStart} 日）。${held} ${fmtPct(heldRet)}、持たなかった方 ${fmtPct(otherRet)}。`;
+  }
+
+  // ---------- 保有状態 ----------
+  function renderHolding() {
+    const h = state.holding || {};
+    el("hold-asset").value = h.asset || "";
+    el("hold-date").value = h.date || new Date().toISOString().slice(0, 10);
+    el("hold-note").value = h.note || "";
+    const rows = state.log.slice().reverse().map((e, idx) => `<tr><td>${e.date}</td><td>${e.asset || "未設定"}</td><td>${(e.note || "").replace(/</g, "&lt;")}</td><td><button class="btn small danger" data-del="${state.log.length - 1 - idx}">削除</button></td></tr>`);
+    el("hold-log").querySelector("tbody").innerHTML = rows.join("") || `<tr><td colspan="4" class="muted">記録なし</td></tr>`;
+  }
+  function saveHolding() {
+    const asset = el("hold-asset").value || null, date = el("hold-date").value, note = el("hold-note").value.trim();
+    state.holding = asset ? { asset, date, note } : null;
+    state.log.push({ date, asset, note, savedAt: new Date().toISOString() });
+    save(KEYS.holding, state.holding); save(KEYS.log, state.log);
+    renderHolding(); renderAction(); toast("保存しました");
+  }
+
+  // ---------- 設定 ----------
+  function renderSettings() {
+    el("th-exit").value = TH.exit_on_greed; el("th-forced").value = TH.forced_exit; el("th-cheap").value = TH.cheap;
+    el("theme-select").value = document.documentElement.getAttribute("data-theme") || "dark";
+    const isDefault = TH.exit_on_greed === DATA.thresholds.exit_on_greed && TH.forced_exit === DATA.thresholds.forced_exit && TH.cheap === DATA.thresholds.cheap;
+    el("th-status").textContent = isDefault ? "既定値（検証で採用した値）" : "この端末だけの設定です。通知は既定値で判定されます";
+  }
+  function applyThresholds(th) {
+    TH = th; save(KEYS.thresholds, th); RULE = computeRule(TH);
+    renderAll();
+  }
+  function setTheme(theme) { document.documentElement.setAttribute("data-theme", theme); save(KEYS.theme, theme); document.querySelector('meta[name="theme-color"]').setAttribute("content", theme === "light" ? "#f3f5f9" : "#101729"); }
+
+  // ---------- ライブ取得 ----------
+  async function fetchLive() {
+    const btn = el("btn-live"); btn.disabled = true; btn.textContent = "取得中...";
+    const result = {};
+    const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+    try {
+      const r = await withTimeout(fetch("https://api.alternative.me/fng/?limit=1&format=json"), 8000);
+      const j = await r.json();
+      const d = j.data[0];
+      const cls = Object.keys(LABEL).find(k => LABEL[k] === d.value_classification) || ({ "Extreme Fear": "EF", "Fear": "F", "Neutral": "N", "Greed": "G", "Extreme Greed": "EG" })[d.value_classification];
+      result.fng = { value: parseInt(d.value, 10), cls, date: new Date(parseInt(d.timestamp, 10) * 1000).toISOString().slice(0, 10) };
+    } catch (e) { /* 取得できなければバッチ値のまま */ }
+    try {
+      const r = await withTimeout(fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,jpy"), 8000);
+      const j = await r.json();
+      result.btc = { usd: j.bitcoin.usd, jpy: j.bitcoin.jpy };
+    } catch (e) { /* noop */ }
+    live = Object.keys(result).length ? Object.assign(result, { at: new Date() }) : null;
+    btn.disabled = false; btn.textContent = "ライブ更新";
+    const banner = el("live-banner");
+    if (live) {
+      banner.hidden = false;
+      banner.innerHTML = `<span class="small">ライブ値 ${live.at.toLocaleTimeString("ja-JP", { hour12: false })}: ` +
+        (live.fng ? `指数 <b>${live.fng.value}</b> ${LABEL[live.fng.cls]}（${live.fng.date}）` : "指数 取得不可") + "　" +
+        (live.btc ? `BTC <b>$${fmtUSD(live.btc.usd)}</b>` : "BTC 取得不可") + `</span>`;
+      renderAction(); renderGauges(); renderPrices();
+    } else { toast("ライブ取得に失敗しました（バッチ値を表示中）"); }
+  }
+
+  // ---------- 全体 ----------
+  function renderAll() { renderHeader(); renderAction(); renderGauges(); renderPrices(); renderCharts(); renderSwitches(); renderSummary(); renderHolding(); renderSettings(); }
+  function wire() {
+    el("btn-live").addEventListener("click", fetchLive);
+    el("btn-theme").addEventListener("click", () => { setTheme(document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light"); renderAll(); });
+    el("theme-select").addEventListener("change", (e) => { setTheme(e.target.value); renderAll(); });
+    el("range-buttons").addEventListener("click", (e) => { const b = e.target.closest("button[data-range]"); if (!b) return; state.range = b.dataset.range; save(KEYS.range, state.range);
+      for (const x of el("range-buttons").querySelectorAll("button")) x.classList.toggle("active", x === b); renderCharts(); });
+    el("hold-save").addEventListener("click", saveHolding);
+    el("hold-log").addEventListener("click", (e) => { const b = e.target.closest("button[data-del]"); if (!b) return; state.log.splice(parseInt(b.dataset.del, 10), 1); const lastEntry = state.log[state.log.length - 1]; state.holding = lastEntry && lastEntry.asset ? { asset: lastEntry.asset, date: lastEntry.date, note: lastEntry.note } : null; save(KEYS.log, state.log); save(KEYS.holding, state.holding); renderHolding(); renderAction(); });
+    el("hold-export").addEventListener("click", () => { const blob = new Blob([JSON.stringify({ holding: state.holding, log: state.log, thresholds: TH }, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `fgs-holding-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); });
+    el("hold-import").addEventListener("change", (e) => { const f = e.target.files[0]; if (!f) return; const reader = new FileReader(); reader.onload = () => { try { const j = JSON.parse(reader.result); if (Array.isArray(j.log)) state.log = j.log; state.holding = j.holding || null; if (j.thresholds) TH = Object.assign({}, TH, j.thresholds); save(KEYS.log, state.log); save(KEYS.holding, state.holding); save(KEYS.thresholds, TH); RULE = computeRule(TH); renderAll(); toast("読み込みました"); } catch (err) { toast("読み込みに失敗しました"); } }; reader.readAsText(f); e.target.value = ""; });
+    el("th-apply").addEventListener("click", () => { const th = { exit_on_greed: parseFloat(el("th-exit").value), forced_exit: parseFloat(el("th-forced").value), cheap: parseFloat(el("th-cheap").value), cost_bps: DATA.thresholds.cost_bps }; if ([th.exit_on_greed, th.forced_exit, th.cheap].some(v => !(v >= 0))) { toast("数値を確認してください"); return; } applyThresholds(th); toast("しきい値を適用しました"); });
+    el("th-reset").addEventListener("click", () => { applyThresholds(Object.assign({}, DATA.thresholds)); toast("既定値に戻しました"); });
+  }
+  async function loadData() {
+    const raw = el("dashboard-data").textContent.trim();
+    if (raw && !raw.startsWith("__")) return JSON.parse(raw);
+    const r = await fetch("data/dashboard.json"); return await r.json();
+  }
+  async function init() {
+    setTheme(load(KEYS.theme, "dark"));
+    try { DATA = await loadData(); } catch (e) { el("meta-dates").textContent = "データを読み込めませんでした: " + e.message; return; }
+    S = DATA.series;
+    state.holding = load(KEYS.holding, null); state.log = load(KEYS.log, []); state.range = load(KEYS.range, "all");
+    for (const x of el("range-buttons").querySelectorAll("button")) x.classList.toggle("active", x.dataset.range === state.range);
+    TH = Object.assign({}, DATA.thresholds, load(KEYS.thresholds, {}));
+    RULE = computeRule(TH);
+    wire(); renderAll();
+    // 整合性チェック（開発用）: JS の再計算が Python の結果と一致するか
+    try {
+      const eqFrom = S.date.indexOf(EQUITY_START);
+      const check = simulate(ruleTargets(S.cls, S.mnav, DATA.thresholds), S.mt, S.btc, S.mstr, eqFrom, DATA.thresholds.cost_bps);
+      const same = check.switches.length === DATA.switches.length && check.switches.every((s, i) => S.date[s.index] === DATA.switches[i].date && s.to === DATA.switches[i].to);
+      const last = S.date.length - 1;
+      console.log("rule-check", same ? "OK" : "MISMATCH", "switches", check.switches.length, "eq_js", check.equity[last] && check.equity[last].toFixed(4), "eq_py", S.eq_f[last]);
+    } catch (e) { console.log("rule-check error", e.message); }
+    fetchLive();
+  }
+  document.addEventListener("DOMContentLoaded", init);
+})();
+</script>
+</body>
+</html>
