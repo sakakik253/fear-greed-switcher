@@ -26,8 +26,19 @@ DATA_DIR = ROOT / "data"
 BTC, MSTR = "BTC", "MSTR"
 # ルールのしきい値（mNAV は時価総額 ÷ 保有 BTC 価値）
 THRESHOLDS = {"exit_on_greed": 1.5, "forced_exit": 3.0, "cheap": 1.0, "cost_bps": 30,
-              "mstu_share": 0.5, "trend_band": 0.03, "mstr_ma_days": 100}
+              "mstu_share": 0.5, "trend_band": 0.03, "mstr_ma_days": 100,
+              "cycle_top_days": 550, "cycle_bottom_days": 950}
 MSTU_DAILY_COST = 0.00142  # 日次 2 倍 ETF の実測コスト（MSTU 実データで較正。2倍複利の減価を除く分、年率およそ 36%）
+# 4 年周期（半減期）の時間軸。局面は半減期からの経過日数で判定する
+HALVINGS = [date(2012, 11, 28), date(2016, 7, 9), date(2020, 5, 11), date(2024, 4, 20)]
+NEXT_HALVING_INTERVAL_DAYS = 1450  # 次回半減期の推定に使う（過去 3 回の間隔は 1,319 / 1,402 / 1,440 日）
+CYCLE_PHASES = {"cycle_top_days": 550, "cycle_bottom_days": 950}  # 半減期+550 日までを上昇局面、+950 日までを下落局面
+CYCLE_REFERENCE_2012 = {  # 価格データが 2014 年からなので、2012 年サイクルは公開情報の固定値
+    "halving": "2012-11-28", "complete": True, "reference": True,
+    "top_date": "2013-11-30", "top_price": 1163.0, "top_days_after_halving": 367,
+    "low_date": "2015-01-14", "low_price": 152.0, "low_days_after_top": 410, "low_days_after_halving": 777,
+    "drawdown": -0.87, "days_low_to_next_top": 1068,
+}
 ERA_START = date(2020, 8, 10)  # mnav.com のデータ開始日（Strategy 社の最初の BTC 購入日）
 EQUITY_START = date(2020, 8, 11)
 CLS_CODE = {"Extreme Fear": "EF", "Fear": "F", "Neutral": "N", "Greed": "G", "Extreme Greed": "EG"}
@@ -188,6 +199,71 @@ def portfolio_equity(weights_by_day: list[dict], returns: dict[str, list[float]]
     return equity
 
 
+def cycle_phase(days_since_halving: int, thresholds: dict) -> str:
+    if days_since_halving < thresholds["cycle_top_days"]:
+        return "上昇局面"
+    if days_since_halving < thresholds["cycle_bottom_days"]:
+        return "下落局面"
+    return "底打ち・回復局面"
+
+
+def cycle_history(btc_points: dict[date, float], today: date) -> list[dict]:
+    """半減期ごとの天井・底を価格データから求める（現在の周期は暫定）。"""
+    first_day = min(btc_points)
+    sorted_days = sorted(btc_points)
+    epochs: list[dict] = []
+    for k, halving in enumerate(HALVINGS):
+        if halving < first_day:
+            continue
+        next_halving = HALVINGS[k + 1] if k + 1 < len(HALVINGS) else None
+        last_day = (next_halving - timedelta(days=1)) if next_halving else today
+        days = [d for d in sorted_days if halving <= d <= last_day]
+        if not days:
+            continue
+        # 天井は「半減期から下落局面の終わりまで」で探す（次の半減期直前の高値を天井と誤認しないため）
+        top_window_end = halving + timedelta(days=CYCLE_PHASES["cycle_bottom_days"])
+        top_day = max((d for d in days if d <= top_window_end), key=lambda d: btc_points[d])
+        after_top = [d for d in days if d >= top_day]
+        low_day = min(after_top, key=lambda d: btc_points[d])
+        epochs.append(
+            {
+                "halving": halving.isoformat(),
+                "complete": next_halving is not None,
+                "reference": False,
+                "price_at_halving": btc_points[days[0]],
+                "top_date": top_day.isoformat(),
+                "top_price": btc_points[top_day],
+                "top_days_after_halving": (top_day - halving).days,
+                "low_date": low_day.isoformat(),
+                "low_price": btc_points[low_day],
+                "low_days_after_top": (low_day - top_day).days,
+                "low_days_after_halving": (low_day - halving).days,
+                "drawdown": btc_points[low_day] / btc_points[top_day] - 1.0,
+                "days_low_to_next_top": None,
+            }
+        )
+    for i in range(len(epochs) - 1):
+        epochs[i]["days_low_to_next_top"] = (date.fromisoformat(epochs[i + 1]["top_date"]) - date.fromisoformat(epochs[i]["low_date"])).days
+    return [CYCLE_REFERENCE_2012] + epochs
+
+
+def cycle_overlay(btc_points: dict[date, float], today: date, step: int = 2) -> list[dict]:
+    """半減期からの経過日数を横軸にした価格比（半減期時点=1）の系列。過去サイクルの重ね合わせ用。"""
+    result = []
+    first_day = min(btc_points)
+    for k, halving in enumerate(HALVINGS):
+        if halving < first_day:
+            continue
+        next_halving = HALVINGS[k + 1] if k + 1 < len(HALVINGS) else None
+        last_day = min((next_halving - timedelta(days=1)) if next_halving else today, today)
+        days = list(daterange(halving, last_day))
+        closes = ffill_series(btc_points, days)
+        base = next(c for c in closes if c is not None)
+        points = [[i, round(c / base, 4)] for i, c in enumerate(closes) if c is not None and (i % step == 0 or i == len(days) - 1)]
+        result.append({"halving": halving.isoformat(), "current": next_halving is None, "points": points})
+    return result
+
+
 def max_drawdown(equity: list[float | None]) -> float:
     peak = 0.0
     worst = 0.0
@@ -304,6 +380,44 @@ def build(out_dir: Path) -> dict:
         "other_return": (btc[last] / btc[leg_start] - 1) if held == MSTR else (mstr[last] / mstr[leg_start] - 1),
     }
 
+    # --- 4 年周期の位置 ---
+    history = cycle_history(btc_points, end)
+    current_cycle = history[-1]
+    halving = max(h for h in HALVINGS if h <= end)
+    days_since_halving = (end - halving).days
+    completed = [c for c in history if c["complete"]]
+    top_to_low = [c["low_days_after_top"] for c in completed]
+    low_to_top = [c["days_low_to_next_top"] for c in completed if c.get("days_low_to_next_top")]
+    top_after_halving = [c["top_days_after_halving"] for c in completed if not c.get("reference")] or [c["top_days_after_halving"] for c in completed]
+    top_day = date.fromisoformat(current_cycle["top_date"])
+    low_day = date.fromisoformat(current_cycle["low_date"])
+    next_halving_est = halving + timedelta(days=NEXT_HALVING_INTERVAL_DAYS)
+    cycle = {
+        "halving": halving.isoformat(),
+        "days_since_halving": days_since_halving,
+        "phase": cycle_phase(days_since_halving, THRESHOLDS),
+        "phase_prev": cycle_phase(days_since_halving - 1, THRESHOLDS),
+        "phase_bounds": [THRESHOLDS["cycle_top_days"], THRESHOLDS["cycle_bottom_days"]],
+        "phase_dates": [(halving + timedelta(days=THRESHOLDS["cycle_top_days"])).isoformat(), (halving + timedelta(days=THRESHOLDS["cycle_bottom_days"])).isoformat()],
+        "top_date": current_cycle["top_date"],
+        "top_price": round(current_cycle["top_price"], 2),
+        "top_days_after_halving": current_cycle["top_days_after_halving"],
+        "days_since_top": (end - top_day).days,
+        "drawdown_from_top": btc[last] / current_cycle["top_price"] - 1.0,
+        "low_date": current_cycle["low_date"],
+        "low_price": round(current_cycle["low_price"], 2),
+        "low_days_after_top": current_cycle["low_days_after_top"],
+        "days_since_low": (end - low_day).days,
+        "gain_from_low": btc[last] / current_cycle["low_price"] - 1.0,
+        "hist_top_to_low": [min(top_to_low), max(top_to_low)],
+        "hist_low_to_top": [min(low_to_top), max(low_to_top)] if low_to_top else None,
+        "hist_top_after_halving": [min(top_after_halving), max(top_after_halving)],
+        "bottom_window": [(top_day + timedelta(days=min(top_to_low))).isoformat(), (top_day + timedelta(days=max(top_to_low))).isoformat()],
+        "next_halving_est": next_halving_est.isoformat(),
+        "next_top_window": [(next_halving_est + timedelta(days=min(top_after_halving))).isoformat(), (next_halving_est + timedelta(days=max(top_after_halving))).isoformat()],
+        "history": history,
+    }
+
     latest = {
         "date": end.isoformat(),
         "fng": fng_vals[last],
@@ -338,6 +452,7 @@ def build(out_dir: Path) -> dict:
         "trend_mstr_up": trend_mstr[last],
         "trend_mstr_prev": trend_mstr[prev],
         "mstu_guide_share": share if (desired_today == MSTR and trend_btc[last]) else 0.0,
+        "cycle": cycle,
         "rule_position_before": held_before_today,
         "rule_target": desired_today,
         "rule_position": rule_f["positions"][last],
@@ -393,6 +508,7 @@ def build(out_dir: Path) -> dict:
         "latest": latest,
         "summary": summary,
         "switches": switches,
+        "cycles": cycle_overlay(btc_points, end),
         "series": {
             "date": [d.isoformat() for d in days],
             "fng": fng_vals,
@@ -440,6 +556,9 @@ def build(out_dir: Path) -> dict:
         f"BTC {summary['multiple_btc']:.2f} / MSTR {summary['multiple_mstr']:.2f} / MSTU参考戦略 {summary['multiple_mstu_mix']:.2f} / MSTU持ち切り {summary['multiple_mstu_hold']:.2f}")
     log(f"トレンド: BTC 200日MA±{THRESHOLDS['trend_band']*100:.0f}% {'強気' if latest['trend_btc_bull'] else '弱気'}、"
         f"MSTR {THRESHOLDS['mstr_ma_days']}日MA {'上' if latest['trend_mstr_up'] else '下'}、MSTU 比率の目安 {latest['mstu_guide_share']*100:.0f}%")
+    log(f"周期: 半減期 {cycle['halving']} から {cycle['days_since_halving']} 日目（{cycle['phase']}）、天井 {cycle['top_date']} から {cycle['days_since_top']} 日、"
+        f"最安値 {cycle['low_date']} から {cycle['days_since_low']} 日。過去の天井→底 {cycle['hist_top_to_low']} 日、底→天井 {cycle['hist_low_to_top']} 日。"
+        f"サイクル系列 {len(cycle_overlay(btc_points, end))} 本")
     log(f"出力: {out_dir}（index.html {len(embedded) // 1024} KB のデータを埋め込み）")
     return dashboard
 

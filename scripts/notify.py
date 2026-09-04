@@ -135,6 +135,17 @@ def detect_events(dashboard: dict) -> list[dict]:
             }
         )
 
+    cycle = latest.get("cycle") or {}
+    if cycle and cycle.get("phase") != cycle.get("phase_prev"):
+        events.append(
+            {
+                "title": f"4 年周期の局面が「{cycle['phase']}」に変わりました（半減期 {cycle['halving']} から {cycle['days_since_halving']} 日）",
+                "message": "弱気トレンド時の現金化は下落局面のときだけ、という既定の判定に影響します。",
+                "priority": 2,
+                "tags": ["hourglass"],
+            }
+        )
+
     if s["trend_mstr"][i] != s["trend_mstr"][j] and s["mstr_ma"][i]:
         up_now = bool(s["trend_mstr"][i])
         events.append(

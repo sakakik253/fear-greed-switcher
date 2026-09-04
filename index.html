@@ -129,6 +129,7 @@
   .mix span.mstu { color: #b07ee0; } .mix span.mstr { color: var(--mstr); } .mix span.cash { color: var(--muted); }
   .conds { margin: 0; padding-left: 1.1em; }
   .conds li { margin-bottom: 4px; }
+  .phase-up { color: var(--good); } .phase-down { color: var(--bad); } .phase-bottom { color: var(--warn); }
   label.field { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--muted); }
   label.field input, label.field select { background: var(--surface2); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
   .muted { color: var(--muted); }
@@ -219,6 +220,24 @@
     </div>
   </section>
 
+  <section class="card section" id="cycle-card">
+    <h2>サイクル位置 <span class="sub">半減期を起点にした4年周期</span></h2>
+    <div class="grid cols-2">
+      <div>
+        <div class="big" id="cycle-phase">-</div>
+        <div class="small muted" id="cycle-phase-sub"></div>
+        <dl class="kv" id="cycle-kv"></dl>
+      </div>
+      <div>
+        <div class="small muted">過去サイクルとの比較（横軸: 半減期からの日数、縦軸: 半減期時点を1、対数目盛。帯は下落局面、縦線は今日）</div>
+        <div class="chart-box"><canvas id="chart-cycle"></canvas></div>
+        <div class="legend"><span><i style="background:#98a2b8"></i>2016年</span><span><i style="background:#4a7bd0"></i>2020年</span><span><i style="background:#f7931a"></i>2024年（現在）</span></div>
+      </div>
+    </div>
+    <div class="table-wrap" style="margin-top:10px"><table id="cycle-table"><thead><tr><th>半減期</th><th>天井</th><th class="num">半減期→天井</th><th>底</th><th class="num">天井→底</th><th class="num">下落率</th><th class="num">底→次の天井</th></tr></thead><tbody></tbody></table></div>
+    <p class="small muted" style="margin:8px 0 0">2012年サイクルは価格データがないため公開情報の固定値。現在のサイクルの天井と底は暫定。次の半減期は過去の間隔から推定。</p>
+  </section>
+
   <section class="card section">
     <h2>価格</h2>
     <div class="price-grid" id="prices"></div>
@@ -295,9 +314,11 @@
       <label class="field">強制退出 mNAV（以上で売る）<input type="number" step="0.1" min="0" id="th-forced"></label>
       <label class="field">割安の目安 mNAV（表示のみ）<input type="number" step="0.05" min="0" id="th-cheap"></label>
       <label class="field">MSTU の目標比率（%）<input type="number" step="5" min="0" max="100" id="th-mstu-share"></label>
-      <label class="field">弱気トレンドのとき
-        <select id="th-cash-bear"><option value="mstr">MSTR に寄せる（既定）</option><option value="cash">現金にする</option></select>
+      <label class="field">弱気トレンドのとき MSTU を売った分
+        <select id="th-cash-bear"><option value="cycle">サイクルの下落局面なら現金、それ以外は MSTR（既定）</option><option value="mstr">常に MSTR</option><option value="cash">常に現金</option></select>
       </label>
+      <label class="field">上昇局面の終わり（半減期からの日数）<input type="number" step="10" min="1" id="th-cycle-top"></label>
+      <label class="field">下落局面の終わり（半減期からの日数）<input type="number" step="10" min="1" id="th-cycle-bottom"></label>
       <label class="field">テーマ
         <select id="theme-select"><option value="dark">ダーク</option><option value="light">ライト</option></select>
       </label>
@@ -313,6 +334,7 @@
         <p><b>ルール F</b>: 指数が「極端な恐怖」に入った日に BTC 現物を売って MSTR を買う。「極端な強欲」に入った日でも、mNAV が出口水準未満なら売らずに MSTR を持ち続ける。mNAV が強制退出水準以上になったら指数に関係なく BTC に戻す。切替は米国市場の営業日の終値で行う。</p>
         <p><b>mNAV</b> は「MSTR の時価総額 ÷ 保有 BTC の価値」。1.0 なら株価が保有 BTC とちょうど同じ価値。公式定義（負債と優先株を含む）はこれより高く出るので、しきい値はこのページの時価総額ベースで見る。</p>
         <p><b>MSTU の目安</b>: MSTU は MSTR の日次 2 倍 ETF で、横ばいでも減価する（実データでの実測はおよそ年率 36% 相当）。そのため「ルール F が MSTR 側」かつ「BTC が 200 日移動平均の +3% 上で強気」のときだけ目標比率で持ち、それ以外は MSTU を 0% にして MSTR に寄せる。MSTR の 100 日移動平均は参考表示。2020 年からの検証では目標比率 30〜50% が MSTR 持ち切りと同等で、80% は大きく劣った。</p>
+        <p><b>サイクル位置</b>: 半減期からの経過日数で局面を分ける。過去 3 回は半減期から 525〜546 日で天井、天井から 364〜410 日で底、底から 1,050〜1,068 日で次の天井だった。既定では半減期+550 日までを上昇局面、+950 日までを下落局面、それ以降を底打ち・回復局面とし、弱気トレンドで MSTU を売った分は下落局面のときだけ現金にする。</p>
         <p><b>通知</b>: GitHub リポジトリの Secrets に <code>NTFY_TOPIC</code> を設定すると、毎朝の更新で判定が変わった日だけ ntfy アプリに通知が届く。MSTU 比率の目安が変わった日も通知する。手動実行で「テスト通知」を選ぶと設定確認ができる。</p>
       </div>
     </details>
@@ -408,13 +430,47 @@
     el("sources").textContent = `データ取得: 指数 ${DATA.sources.fng_fetched_at || "-"} / mNAV ${DATA.sources.mnav_fetched_at || "-"}（UTC）`;
   }
 
+  // ---------- 4 年周期 ----------
+  function cyclePhase(days) {
+    if (days < TH.cycle_top_days) return "上昇局面";
+    if (days < TH.cycle_bottom_days) return "下落局面";
+    return "底打ち・回復局面";
+  }
+  function phaseClass(phase) { return phase === "上昇局面" ? "phase-up" : phase === "下落局面" ? "phase-down" : "phase-bottom"; }
+  function addDays(iso, days) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); }
+  function renderCycle() {
+    const c = DATA.latest.cycle; if (!c) return;
+    const phase = cyclePhase(c.days_since_halving);
+    const ph = el("cycle-phase"); ph.textContent = phase; ph.className = "big " + phaseClass(phase);
+    const bounds = phase === "上昇局面" ? `半減期から ${TH.cycle_top_days} 日まで（${addDays(c.halving, TH.cycle_top_days)} まで）` : phase === "下落局面" ? `半減期+${TH.cycle_top_days}〜${TH.cycle_bottom_days} 日（${addDays(c.halving, TH.cycle_bottom_days)} まで）` : `半減期+${TH.cycle_bottom_days} 日以降、次の半減期（推定 ${c.next_halving_est}）まで`;
+    el("cycle-phase-sub").textContent = `半減期 ${c.halving} から ${c.days_since_halving} 日目。${bounds}`;
+    const rows = [
+      ["直近の天井", `${c.top_date}（半減期+${c.top_days_after_halving}日、$${fmtUSD(c.top_price)}）`],
+      ["天井からの経過", `${c.days_since_top} 日、${fmtPct(c.drawdown_from_top)}`],
+      ["天井後の最安値", `${c.low_date}（天井+${c.low_days_after_top}日、$${fmtUSD(c.low_price)}）`],
+      ["最安値からの経過", `${c.days_since_low} 日、${fmtPct(c.gain_from_low)}`],
+      ["過去の天井→底", `${c.hist_top_to_low[0]}〜${c.hist_top_to_low[1]} 日。今回に当てはめると ${c.bottom_window[0]} 〜 ${c.bottom_window[1]}`],
+      ["過去の底→次の天井", c.hist_low_to_top ? `${c.hist_low_to_top[0].toLocaleString()}〜${c.hist_low_to_top[1].toLocaleString()} 日` : "-"],
+      ["次の半減期（推定）", `${c.next_halving_est}。過去は半減期+${c.hist_top_after_halving[0]}〜${c.hist_top_after_halving[1]} 日で天井なので ${c.next_top_window[0]} 〜 ${c.next_top_window[1]} が目安`],
+    ];
+    el("cycle-kv").innerHTML = rows.map(r => `<dt>${r[0]}</dt><dd style="text-align:left">${r[1]}</dd>`).join("");
+    el("cycle-table").querySelector("tbody").innerHTML = c.history.map(h => `<tr><td>${h.halving.slice(0, 4)}年${h.reference ? "（固定値）" : h.complete ? "" : "（暫定）"}</td><td>${h.top_date}</td><td class="num">${h.top_days_after_halving} 日</td><td>${h.low_date}</td><td class="num">${h.low_days_after_top} 日</td><td class="num">${fmtPct(h.drawdown, 0)}</td><td class="num">${h.days_low_to_next_top ? h.days_low_to_next_top.toLocaleString() + " 日" : "-"}</td></tr>`).join("");
+  }
+
   // ---------- MSTU の目安 ----------
+  function cashOnBear() {
+    const mode = TH.mstu_cash_mode || "cycle";
+    if (mode === "cash") return true;
+    if (mode === "mstr") return false;
+    return DATA.latest.cycle ? cyclePhase(DATA.latest.cycle.days_since_halving) === "下落局面" : false;
+  }
   function mstuGuide() {
     const last = S.date.length - 1, sig = currentSignal();
     const bull = !!S.trend_btc[last], on = sig.target === MSTR, x = TH.mstu_share;
-    if (on && bull) return { mstu: x, mstr: +(1 - x).toFixed(4), cash: 0, on, bull, reason: "ルールFがMSTR側、BTCトレンド強気" };
-    if (!bull && TH.mstu_cash_on_bear) return { mstu: 0, mstr: 0, cash: 1, on, bull, reason: on ? "BTCトレンド弱気（設定により現金）" : "ルールFがBTC側、BTCトレンド弱気（設定により現金）" };
-    return { mstu: 0, mstr: 1, cash: 0, on, bull, reason: on ? "BTCトレンド弱気（MSTRに寄せる）" : "ルールFがBTC側（MSTRに寄せる）" };
+    const phase = DATA.latest.cycle ? cyclePhase(DATA.latest.cycle.days_since_halving) : "-";
+    if (on && bull) return { mstu: x, mstr: +(1 - x).toFixed(4), cash: 0, on, bull, phase, reason: "ルールFがMSTR側、BTCトレンド強気" };
+    if (!bull && cashOnBear()) return { mstu: 0, mstr: 0, cash: 1, on, bull, phase, reason: `BTCトレンド弱気、サイクルは${phase}（現金）` };
+    return { mstu: 0, mstr: 1, cash: 0, on, bull, phase, reason: on ? `BTCトレンド弱気、サイクルは${phase}（MSTRに寄せる）` : "ルールFがBTC側（MSTRに寄せる）" };
   }
   function renderMstu() {
     const L = DATA.latest, g = mstuGuide(), pct = (v) => Math.round(v * 100);
@@ -429,7 +485,7 @@
     el("mstu-conditions").innerHTML = [
       `<li><b>MSTU を 0% にする条件</b>: ルールFが BTC 側になる（極端な強欲かつ mNAV ${TH.exit_on_greed} 以上、または mNAV ${TH.forced_exit} 以上）、または BTC の終値が ${lower}（200日MAの${Math.round(TH.trend_band * 100)}%下）を割る</li>`,
       `<li><b>MSTU を ${pct(TH.mstu_share)}% に戻す条件</b>: ルールFが MSTR 側（極端な恐怖）で、BTC が ${upper}（200日MAの${Math.round(TH.trend_band * 100)}%上）より上にある</li>`,
-      `<li><b>減らした分の行き先</b>: ${TH.mstu_cash_on_bear ? "弱気トレンドなら現金、それ以外は MSTR" : "MSTR（上げ相場中の強欲シグナルでは現金化しない）"}</li>`,
+      `<li><b>減らした分の行き先</b>: ${(TH.mstu_cash_mode || "cycle") === "cycle" ? `弱気トレンドかつサイクルが下落局面（半減期+${TH.cycle_top_days}〜${TH.cycle_bottom_days}日）なら現金、それ以外は MSTR` : TH.mstu_cash_mode === "cash" ? "弱気トレンドなら現金、それ以外は MSTR" : "常に MSTR（現金化しない）"}。現在のサイクルは${g.phase}</li>`,
     ].join("");
     const sm = DATA.summary;
     el("mstu-note").textContent = `参考: 2020-08-11 からの倍率は MSTU参考戦略（目標${pct(DATA.thresholds.mstu_share)}%、合成） ${fmtX(sm.multiple_mstu_mix)}倍、MSTR持ち切り ${fmtX(sm.multiple_mstr)}倍、MSTU持ち切り ${fmtX(sm.multiple_mstu_hold)}倍。MSTU は横ばいで減価するため上げ相場の局面だけ持つ。`;
@@ -532,6 +588,7 @@
     chips.push(`<span class="chip ${L.mnav < TH.exit_on_greed ? "ok" : "ng"}">mNAV <b>${fmtX(L.mnav)}</b>${L.mnav < TH.exit_on_greed ? "（出口 " + TH.exit_on_greed + " 未満）" : "（出口 " + TH.exit_on_greed + " 以上）"}</span>`);
     chips.push(`<span class="chip ${g.bull ? "ok" : "ng"}">BTC 200日MA±${Math.round(TH.trend_band * 100)}% <b>${g.bull ? "強気" : "弱気"}</b></span>`);
     chips.push(`<span class="chip ${L.trend_mstr_up ? "ok" : "ng"}">MSTR 100日MA <b>${L.trend_mstr_up ? "上" : "下"}</b></span>`);
+    if (L.cycle) chips.push(`<span class="chip">サイクル <b class="${phaseClass(g.phase)}">${g.phase}</b>（半減期+${L.cycle.days_since_halving}日）</span>`);
     el("action-chips").innerHTML = chips.join("");
   }
 
@@ -617,6 +674,13 @@
     }
     ctx.restore();
   } };
+  const vbandPlugin = { id: "vband", beforeDatasetsDraw(chart, args, opts) {
+    if (!opts) return; const { ctx, chartArea, scales } = chart; const x = scales.x;
+    ctx.save();
+    if (opts.from != null && opts.to != null) { const x0 = x.getPixelForValue(opts.from), x1 = x.getPixelForValue(opts.to); ctx.fillStyle = opts.color; ctx.fillRect(x0, chartArea.top, x1 - x0, chartArea.height); }
+    if (opts.today != null) { const xt = x.getPixelForValue(opts.today); ctx.strokeStyle = opts.todayColor || "#888"; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(xt, chartArea.top); ctx.lineTo(xt, chartArea.bottom); ctx.stroke(); ctx.fillStyle = opts.todayColor || "#888"; ctx.font = "10px sans-serif"; ctx.fillText("今日", xt + 4, chartArea.top + 12); }
+    ctx.restore();
+  } };
   const hlinesPlugin = { id: "hlines", afterDatasetsDraw(chart, args, opts) {
     const lines = opts && opts.lines; if (!lines) return; const { ctx, chartArea, scales } = chart;
     ctx.save(); ctx.setLineDash([4, 4]); ctx.lineWidth = 1; ctx.font = "10px sans-serif";
@@ -691,6 +755,16 @@
       { label: "MSTR", data: norm(S.eq_mstr), borderColor: COLORS.mstr, backgroundColor: COLORS.mstr },
       { label: "MSTU参考戦略", data: norm(S.eq_mstu_mix), borderColor: "#7b2cbf", backgroundColor: "#7b2cbf", borderDash: [5, 3] },
     ] }, options: baseOptions("logarithmic") });
+
+    if (DATA.cycles && DATA.latest.cycle && el("chart-cycle")) {
+      const colors = { "2016": "#98a2b8", "2020": COLORS.mstr, "2024": COLORS.btc };
+      const datasets = DATA.cycles.map(c => ({ label: c.halving.slice(0, 4) + "年", data: c.points.map(p => ({ x: p[0], y: p[1] })), borderColor: colors[c.halving.slice(0, 4)] || fg, backgroundColor: colors[c.halving.slice(0, 4)] || fg, borderWidth: c.current ? 2.4 : 1.2, parsing: false }));
+      const opts = baseOptions("logarithmic", { vband: { from: TH.cycle_top_days, to: TH.cycle_bottom_days, color: "rgba(215,38,61,0.10)", today: DATA.latest.cycle.days_since_halving, todayColor: fg } });
+      opts.scales.x = { type: "linear", min: 0, max: 1460, ticks: { color: cssVar("--muted"), maxTicksLimit: 8, callback: (v) => v + "日" }, grid: { color: cssVar("--border") } };
+      opts.interaction = { mode: "nearest", intersect: false };
+      opts.plugins.tooltip = { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.x}日目 ${c.parsed.y.toFixed(2)}倍` } };
+      charts.cycle = new Chart(el("chart-cycle"), { type: "line", plugins: [vbandPlugin], data: { datasets }, options: opts });
+    }
   }
 
   // ---------- 表 ----------
@@ -750,9 +824,10 @@
   // ---------- 設定 ----------
   function renderSettings() {
     el("th-exit").value = TH.exit_on_greed; el("th-forced").value = TH.forced_exit; el("th-cheap").value = TH.cheap;
-    el("th-mstu-share").value = Math.round(TH.mstu_share * 100); el("th-cash-bear").value = TH.mstu_cash_on_bear ? "cash" : "mstr";
+    el("th-mstu-share").value = Math.round(TH.mstu_share * 100); el("th-cash-bear").value = TH.mstu_cash_mode || "cycle";
+    el("th-cycle-top").value = TH.cycle_top_days; el("th-cycle-bottom").value = TH.cycle_bottom_days;
     el("theme-select").value = document.documentElement.getAttribute("data-theme") || "dark";
-    const isDefault = TH.exit_on_greed === DATA.thresholds.exit_on_greed && TH.forced_exit === DATA.thresholds.forced_exit && TH.cheap === DATA.thresholds.cheap && TH.mstu_share === DATA.thresholds.mstu_share && !TH.mstu_cash_on_bear;
+    const isDefault = TH.exit_on_greed === DATA.thresholds.exit_on_greed && TH.forced_exit === DATA.thresholds.forced_exit && TH.cheap === DATA.thresholds.cheap && TH.mstu_share === DATA.thresholds.mstu_share && (TH.mstu_cash_mode || "cycle") === "cycle" && TH.cycle_top_days === DATA.thresholds.cycle_top_days && TH.cycle_bottom_days === DATA.thresholds.cycle_bottom_days;
     el("th-status").textContent = isDefault ? "既定値（検証で採用した値）" : "この端末だけの設定です。通知は既定値で判定されます";
   }
   function applyThresholds(th) {
@@ -791,7 +866,7 @@
   }
 
   // ---------- 全体 ----------
-  function renderAll() { renderHeader(); renderAction(); renderGauges(); renderPrices(); renderCharts(); renderSwitches(); renderSummary(); renderHolding(); renderSettings(); }
+  function renderAll() { renderHeader(); renderAction(); renderGauges(); renderCycle(); renderPrices(); renderCharts(); renderSwitches(); renderSummary(); renderHolding(); renderSettings(); }
   function wire() {
     el("btn-live").addEventListener("click", fetchLive);
     el("btn-theme").addEventListener("click", () => { setTheme(document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light"); renderAll(); });
@@ -805,11 +880,11 @@
     el("hold-import").addEventListener("change", (e) => { const f = e.target.files[0]; if (!f) return; const reader = new FileReader(); reader.onload = () => { try { const j = JSON.parse(reader.result); if (Array.isArray(j.log)) state.log = j.log; state.holding = j.holding || null; if (j.thresholds) TH = Object.assign({}, TH, j.thresholds); save(KEYS.log, state.log); save(KEYS.holding, state.holding); save(KEYS.thresholds, TH); RULE = computeRule(TH); renderAll(); toast("読み込みました"); } catch (err) { toast("読み込みに失敗しました"); } }; reader.readAsText(f); e.target.value = ""; });
     el("th-apply").addEventListener("click", () => {
       const share = parseFloat(el("th-mstu-share").value);
-      const th = Object.assign({}, DATA.thresholds, { exit_on_greed: parseFloat(el("th-exit").value), forced_exit: parseFloat(el("th-forced").value), cheap: parseFloat(el("th-cheap").value), mstu_share: share / 100, mstu_cash_on_bear: el("th-cash-bear").value === "cash" });
-      if ([th.exit_on_greed, th.forced_exit, th.cheap].some(v => !(v >= 0)) || !(share >= 0 && share <= 100)) { toast("数値を確認してください"); return; }
+      const th = Object.assign({}, DATA.thresholds, { exit_on_greed: parseFloat(el("th-exit").value), forced_exit: parseFloat(el("th-forced").value), cheap: parseFloat(el("th-cheap").value), mstu_share: share / 100, mstu_cash_mode: el("th-cash-bear").value, cycle_top_days: parseInt(el("th-cycle-top").value, 10), cycle_bottom_days: parseInt(el("th-cycle-bottom").value, 10) });
+      if ([th.exit_on_greed, th.forced_exit, th.cheap].some(v => !(v >= 0)) || !(share >= 0 && share <= 100) || !(th.cycle_top_days > 0 && th.cycle_bottom_days > th.cycle_top_days)) { toast("数値を確認してください"); return; }
       applyThresholds(th); toast("設定を適用しました");
     });
-    el("th-reset").addEventListener("click", () => { applyThresholds(Object.assign({}, DATA.thresholds, { mstu_cash_on_bear: false })); toast("既定値に戻しました"); });
+    el("th-reset").addEventListener("click", () => { applyThresholds(Object.assign({}, DATA.thresholds, { mstu_cash_mode: "cycle" })); toast("既定値に戻しました"); });
   }
   async function loadData() {
     const raw = el("dashboard-data").textContent.trim();
@@ -822,7 +897,8 @@
     S = DATA.series;
     state.holding = load(KEYS.holding, null); state.log = load(KEYS.log, []); state.range = load(KEYS.range, "all");
     for (const x of el("range-buttons").querySelectorAll("button")) x.classList.toggle("active", x.dataset.range === state.range);
-    TH = Object.assign({}, DATA.thresholds, { mstu_cash_on_bear: false }, load(KEYS.thresholds, {}));
+    TH = Object.assign({}, DATA.thresholds, { mstu_cash_mode: "cycle" }, load(KEYS.thresholds, {}));
+    if (TH.mstu_cash_on_bear === true && !load(KEYS.thresholds, {}).mstu_cash_mode) TH.mstu_cash_mode = "cash";  // 旧設定の移行
     RULE = computeRule(TH);
     wire(); renderAll();
     // 整合性チェック（開発用）: JS の再計算が Python の結果と一致するか
