@@ -1,0 +1,28 @@
+# 研究用ブランチ（research/**）に push したとき、追加銘柄の日足を取得して同じブランチにコミットする。
+name: 研究用データ取得
+
+on:
+  push:
+    branches: ["research/**"]
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: 追加銘柄を取得
+        run: python3 scripts/fetch_extra.py MSTU MSTX MSTR
+      - name: コミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/extra
+          if git diff --cached --quiet; then echo "変更なし"; exit 0; fi
+          git commit -m "研究用データを更新 (MSTU/MSTX/MSTR)"
+          git push origin HEAD:${{ github.ref_name }}
